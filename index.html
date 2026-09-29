@@ -1,0 +1,2295 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>FluxoPro MVP v0.1.0 - Sistema de Gestão Financeira (Projeto de Estudo)</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: 'Inter', system-ui, -apple-system, sans-serif; background: #f3f4f6; }
+  .gradient-bg { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
+  .sidebar-item { transition: all 0.2s; border-left: 3px solid transparent; }
+  .sidebar-item:hover { background: rgba(255,255,255,0.08); }
+  .sidebar-item.active { background: rgba(255,255,255,0.12); border-left-color: #60a5fa; }
+  .card-hover { transition: all 0.3s; }
+  .card-hover:hover { transform: translateY(-2px); box-shadow: 0 12px 40px rgba(0,0,0,0.12); }
+  .modal-overlay { background: rgba(15,23,42,0.6); backdrop-filter: blur(8px); }
+  .fade-in { animation: fadeIn 0.25s ease-out; }
+  .slide-up { animation: slideUp 0.3s ease-out; }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+  @keyframes slideUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #f1f1f1; }
+  ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+  .input-base { width: 100%; padding: 0.6rem 0.85rem; border: 1px solid #d1d5db; border-radius: 0.5rem; font-size: 0.875rem; transition: all 0.2s; outline: none; background: white; }
+  .input-base:focus { border-color: #6366f1; box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
+  .btn-primary { background: linear-gradient(135deg, #6366f1, #8b5cf6); color: white; padding: 0.6rem 1.25rem; border-radius: 0.5rem; font-weight: 500; transition: all 0.2s; border: none; cursor: pointer; }
+  .btn-primary:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(99,102,241,0.35); }
+  .btn-secondary { background: white; color: #374151; padding: 0.6rem 1.25rem; border-radius: 0.5rem; font-weight: 500; border: 1px solid #d1d5db; transition: all 0.2s; cursor: pointer; }
+  .btn-secondary:hover { background: #f9fafb; border-color: #9ca3af; }
+  .btn-danger { background: linear-gradient(135deg, #ef4444, #dc2626); color: white; padding: 0.6rem 1.25rem; border-radius: 0.5rem; font-weight: 500; transition: all 0.2s; border: none; cursor: pointer; }
+  .btn-success { background: linear-gradient(135deg, #10b981, #059669); color: white; padding: 0.6rem 1.25rem; border-radius: 0.5rem; font-weight: 500; transition: all 0.2s; border: none; cursor: pointer; }
+  .chip { display: inline-flex; align-items: center; padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.7rem; font-weight: 600; }
+  .toast { position: fixed; bottom: 20px; right: 20px; z-index: 100; padding: 1rem 1.5rem; border-radius: 0.75rem; color: white; font-weight: 500; box-shadow: 0 10px 30px rgba(0,0,0,0.2); animation: slideUp 0.3s; }
+  .tab-btn { padding: 0.5rem 1rem; border-radius: 0.5rem; font-size: 0.875rem; font-weight: 500; transition: all 0.2s; cursor: pointer; }
+  .tab-btn.active { background: #6366f1; color: white; }
+  .tab-btn:not(.active) { background: white; color: #374151; border: 1px solid #d1d5db; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script type="text/babel">
+const { useState, useEffect, useMemo, useRef } = React;
+
+// ============================================================
+// UTILITÁRIOS
+// ============================================================
+/**
+ * Formata valor numérico como moeda BRL
+ * Ex: 1234.56 -> "R$ 1.234,56"
+ */
+const fmtMoney = (v) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0);
+const fmtDate = (d) => { if (!d) return '-'; try { const dt = new Date(d + 'T00:00:00'); return dt.toLocaleDateString('pt-BR'); } catch(e) { return d; } };
+const today = () => new Date().toISOString().split('T')[0];
+const uid = () => Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
+const parseNum = (v) => { if (!v) return 0; return Number(String(v).replace(',', '.')); };
+
+// ============================================================
+// BANCO DE DADOS LOCAL (localStorage)
+// ============================================================
+const DB = {
+  get: (k) => { try { return JSON.parse(localStorage.getItem('fp_' + k)); } catch(e) { return null; } },
+  set: (k, v) => localStorage.setItem('fp_' + k, JSON.stringify(v)),
+  del: (k) => localStorage.removeItem('fp_' + k),
+};
+
+// ============================================================
+// CATEGORIAS PADRÃO
+// ============================================================
+const DEFAULT_CATS = [
+  { id: 'c1', name: 'Salário', type: 'entrada', color: '#10b981' },
+  { id: 'c2', name: 'Férias', type: 'entrada', color: '#059669' },
+  { id: 'c3', name: 'Restituição IR', type: 'entrada', color: '#047857' },
+  { id: 'c4', name: 'Comissões', type: 'entrada', color: '#34d399' },
+  { id: 'c5', name: 'Bônus', type: 'entrada', color: '#6ee7b7' },
+  { id: 'c6', name: 'Investimentos', type: 'entrada', color: '#14b8a6' },
+  { id: 'c7', name: 'Rendimentos', type: 'entrada', color: '#0d9488' },
+  { id: 'c8', name: 'Telefone Fixo', type: 'saida', color: '#ef4444' },
+  { id: 'c9', name: 'Eletricidade', type: 'saida', color: '#dc2626' },
+  { id: 'c10', name: 'Água', type: 'saida', color: '#b91c1c' },
+  { id: 'c11', name: 'Aluguel', type: 'saida', color: '#f87171' },
+  { id: 'c12', name: 'Financiamento Imóvel', type: 'saida', color: '#991b1b' },
+  { id: 'c13', name: 'Combustível', type: 'saida', color: '#f97316' },
+  { id: 'c14', name: 'Viagem', type: 'saida', color: '#ea580c' },
+  { id: 'c15', name: 'Entretenimento', type: 'saida', color: '#f59e0b' },
+  { id: 'c16', name: 'Presentes', type: 'saida', color: '#d97706' },
+  { id: 'c17', name: 'Cuidados Pessoais', type: 'saida', color: '#8b5cf6' },
+  { id: 'c18', name: 'Doações', type: 'saida', color: '#7c3aed' },
+  { id: 'c19', name: 'Internet', type: 'saida', color: '#6366f1' },
+  { id: 'c20', name: 'Supermercado', type: 'saida', color: '#ec4899' },
+  { id: 'c21', name: 'Casa', type: 'saida', color: '#db2777' },
+  { id: 'c22', name: 'Vestuário', type: 'saida', color: '#be185d' },
+  { id: 'c23', name: 'Saúde/Medicamentos', type: 'saida', color: '#06b6d4' },
+  { id: 'c24', name: 'Melhorias Casa', type: 'saida', color: '#0d9488' },
+  { id: 'c25', name: 'Financiamento Carro', type: 'saida', color: '#64748b' },
+  { id: 'c26', name: 'Manutenção Carro', type: 'saida', color: '#475569' },
+  { id: 'c27', name: 'Transporte', type: 'saida', color: '#334155' },
+  { id: 'c28', name: 'Empréstimo', type: 'saida', color: '#1e293b' },
+  { id: 'c29', name: 'Celular', type: 'saida', color: '#a855f7' },
+  { id: 'c30', name: 'TV a cabo', type: 'saida', color: '#9333ea' },
+  { id: 'c31', name: 'Gás', type: 'saida', color: '#7e22ce' },
+  { id: 'c32', name: 'Outros', type: 'saida', color: '#6b7280' },
+];
+
+// ============================================================
+// COMPONENTES BASE
+// ============================================================
+function Modal({ open, onClose, title, children, size, footer }) {
+  if (!open) return null;
+  const sz = size === 'lg' ? 'max-w-3xl' : size === 'xl' ? 'max-w-5xl' : size === 'sm' ? 'max-w-md' : 'max-w-lg';
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay p-4" onClick={onClose}>
+      <div className={'bg-white rounded-2xl shadow-2xl w-full ' + sz + ' max-h-[92vh] overflow-hidden flex flex-col slide-up'} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 bg-gradient-to-r from-indigo-50 to-purple-50">
+          <h3 className="text-lg font-bold text-gray-800">{title}</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-800 p-1.5 rounded-full hover:bg-gray-200"></button>
+        </div>
+        <div className="overflow-y-auto p-6 flex-1">{children}</div>
+        {footer && <div className="px-6 py-4 border-t border-gray-200 bg-gray-50">{footer}</div>}
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children, required }) {
+  return (
+    <div className="mb-4">
+      <label className="block text-sm font-medium text-gray-700 mb-1.5">
+        {label}{required && <span className="text-rose-500 ml-1">*</span>}
+      </label>
+      {children}
+    </div>
+  );
+}
+
+function Toast({ message, type, onClose }) {
+  useEffect(() => { const t = setTimeout(onClose, 3000); return () => clearTimeout(t); }, []);
+  const colors = type === 'success' ? 'bg-emerald-500' : type === 'error' ? 'bg-rose-500' : 'bg-indigo-500';
+  return <div className={'toast ' + colors}>{message}</div>;
+}
+
+function EmptyState({ icon, title, description, action }) {
+  return (
+    <div className="bg-white rounded-2xl p-12 text-center border border-gray-100">
+      <div className="inline-flex items-center justify-center w-16 h-16 bg-gray-100 rounded-2xl mb-4 text-3xl">{icon}</div>
+      <h3 className="text-lg font-semibold text-gray-800 mb-1">{title}</h3>
+      <p className="text-gray-500 text-sm mb-4">{description}</p>
+      {action}
+    </div>
+  );
+}
+
+// ============================================================
+// GRÁFICOS SVG CUSTOMIZADOS (sem dependência externa)
+// ============================================================
+function BarChart({ data, height = 250 }) {
+  if (!data || data.length === 0) return <div className="flex items-center justify-center text-gray-400" style={{height}}>Sem dados</div>;
+  const max = Math.max(...data.map(d => Math.max(d.entradas || 0, d.saidas || 0))) || 1;
+  const barW = Math.max(20, Math.min(60, 400 / data.length));
+  return (
+    <div style={{height, overflowX: 'auto'}}>
+      <svg width={data.length * (barW * 2 + 10)} height={height - 30} style={{minWidth: '100%'}}>
+        {data.map((d, i) => {
+          const x = i * (barW * 2 + 10) + 10;
+          const hE = ((d.entradas || 0) / max) * (height - 60);
+          const hS = ((d.saidas || 0) / max) * (height - 60);
+          return (
+            <g key={i}>
+              <rect x={x} y={height - 50 - hE} width={barW} height={hE} fill="#10b981" rx="3"/>
+              <rect x={x + barW + 2} y={height - 50 - hS} width={barW} height={hS} fill="#ef4444" rx="3"/>
+              <text x={x + barW} y={height - 30} textAnchor="middle" fontSize="10" fill="#6b7280">{d.month}</text>
+            </g>
+          );
+        })}
+      </svg>
+      <div className="flex gap-4 mt-2 text-xs">
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{background:'#10b981'}}></span>Entradas</span>
+        <span className="flex items-center gap-1"><span className="w-3 h-3 rounded" style={{background:'#ef4444'}}></span>Saídas</span>
+      </div>
+    </div>
+  );
+}
+
+function AreaChart({ data, height = 250 }) {
+  if (!data || data.length <= 1) return <div className="flex items-center justify-center text-gray-400" style={{height}}>Sem dados</div>;
+  const max = Math.max(...data.map(d => Math.abs(d.saldo))) || 1;
+  const min = Math.min(...data.map(d => d.saldo));
+  const range = max - min || 1;
+  const w = 500, h = height - 40;
+  const pts = data.map((d, i) => ({
+    x: (i / (data.length - 1)) * w,
+    y: h - ((d.saldo - min) / range) * h
+  }));
+  const pathD = pts.map((p, i) => (i === 0 ? 'M' : 'L') + p.x + ',' + p.y).join(' ');
+  const areaD = pathD + ' L' + w + ',' + h + ' L0,' + h + ' Z';
+  return (
+    <div style={{height}}>
+      <svg viewBox={'0 0 ' + w + ' ' + (h + 20)} preserveAspectRatio="none" style={{width: '100%', height: '100%'}}>
+        <defs>
+          <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#6366f1" stopOpacity="0.6"/>
+            <stop offset="100%" stopColor="#6366f1" stopOpacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d={areaD} fill="url(#areaGrad)"/>
+        <path d={pathD} fill="none" stroke="#6366f1" strokeWidth="2"/>
+        {pts.map((p, i) => <circle key={i} cx={p.x} cy={p.y} r="3" fill="#6366f1"/>)}
+      </svg>
+    </div>
+  );
+}
+
+function DonutChart({ data, size = 200 }) {
+  if (!data || data.length === 0) return <div className="flex items-center justify-center text-gray-400" style={{height: size}}>Sem dados</div>;
+  const total = data.reduce((s, d) => s + d.value, 0) || 1;
+  const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#06b6d4', '#ef4444', '#84cc16', '#f97316', '#14b8a6'];
+  let cum = 0;
+  const r = 80, cx = 100, cy = 100;
+  return (
+    <div className="flex items-center gap-4">
+      <svg width={size} height={size} viewBox="0 0 200 200">
+        {data.map((d, i) => {
+          const pct = d.value / total;
+          const start = cum * 2 * Math.PI - Math.PI / 2;
+          cum += pct;
+          const end = cum * 2 * Math.PI - Math.PI / 2;
+          const x1 = cx + r * Math.cos(start), y1 = cy + r * Math.sin(start);
+          const x2 = cx + r * Math.cos(end), y2 = cy + r * Math.sin(end);
+          const large = pct > 0.5 ? 1 : 0;
+          const path = `M ${cx} ${cy} L ${x1} ${y1} A ${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`;
+          return <path key={i} d={path} fill={COLORS[i % COLORS.length]} stroke="white" strokeWidth="2"/>;
+        })}
+        <circle cx={cx} cy={cy} r="40" fill="white"/>
+        <text x={cx} y={cy - 5} textAnchor="middle" fontSize="11" fill="#6b7280">Total</text>
+        <text x={cx} y={cy + 12} textAnchor="middle" fontSize="12" fontWeight="bold" fill="#1f2937">{fmtMoney(total)}</text>
+      </svg>
+      <div className="flex flex-col gap-1 text-xs">
+        {data.slice(0, 8).map((d, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="w-3 h-3 rounded" style={{background: COLORS[i % COLORS.length]}}></span>
+            <span className="text-gray-700">{d.name}</span>
+            <span className="text-gray-500">({((d.value/total)*100).toFixed(0)}%)</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// LOGIN
+// ============================================================
+function LoginScreen({ onLogin }) {
+  const [isRegister, setIsRegister] = useState(false);
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [error, setError] = useState('');
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    setError('');
+    const users = DB.get('users') || [];
+    if (isRegister) {
+      if (!name || !email || !password) { setError('Preencha todos os campos'); return; }
+      if (users.find(u => u.email === email)) { setError('Email já cadastrado'); return; }
+      const newUser = { id: uid(), name, email, password, createdAt: new Date().toISOString() };
+      DB.set('users', users.concat([newUser]));
+      DB.set('data_' + newUser.id, {
+        accounts: [{ id: uid(), name: 'Conta Principal', bank: '', agency: '', account: '', balance: 0, color: '#6366f1' }],
+        categories: DEFAULT_CATS,
+        transactions: [],
+        recurring: [],
+        creditCards: [],
+        piggyBanks: [],
+        loans: [],
+        investments: [],
+        billsPay: [],
+        billsRecv: [],
+        settings: { currency: 'BRL' },
+      });
+      DB.set('currentUser', newUser);
+      onLogin(newUser);
+    } else {
+      const user = users.find(u => u.email === email && u.password === password);
+      if (!user) { setError('Email ou senha inválidos'); return; }
+      DB.set('currentUser', user);
+      onLogin(user);
+    }
+  }
+
+  return (
+    <div className="min-h-screen gradient-bg flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        <div className="text-center mb-8">
+          <div className="inline-flex items-center justify-center w-20 h-20 bg-white rounded-2xl shadow-xl mb-4 text-4xl">💰</div>
+          <h1 className="text-4xl font-bold text-white mb-2">FluxoPro</h1>
+          <p className="text-indigo-100">Sistema de Gestão Financeira</p>
+          <p className="text-indigo-200 text-xs mt-2">MVP v0.1.0 - Projeto de Estudo</p>
+        </div>
+        <div className="bg-white rounded-2xl shadow-2xl p-8">
+          <h2 className="text-2xl font-bold text-gray-800 mb-6 text-center">{isRegister ? 'Criar conta' : 'Entrar'}</h2>
+          {error && <div className="bg-rose-50 border border-rose-200 text-rose-700 px-4 py-3 rounded-lg mb-4 text-sm">{error}</div>}
+          <form onSubmit={handleSubmit}>
+            {isRegister && <Field label="Nome completo" required><input className="input-base" value={name} onChange={e => setName(e.target.value)} /></Field>}
+            <Field label="Email" required><input className="input-base" type="email" value={email} onChange={e => setEmail(e.target.value)} /></Field>
+            <Field label="Senha" required><input className="input-base" type="password" value={password} onChange={e => setPassword(e.target.value)} /></Field>
+            <button type="submit" className="btn-primary w-full py-3 mt-2">{isRegister ? 'Criar conta' : 'Entrar'}</button>
+          </form>
+          <div className="mt-6 text-center">
+            <button onClick={() => { setIsRegister(!isRegister); setError(''); }} className="text-indigo-600 hover:text-indigo-800 text-sm font-medium">
+              {isRegister ? 'Já tem conta? Entrar' : 'Não tem conta? Criar agora'}
+            </button>
+          </div>
+        </div>
+        <div className="mt-6 text-center">
+          <p className="text-indigo-100 text-sm font-medium">© 2026 Walney Moreira Klein</p>
+          <p className="text-indigo-200 text-xs mt-1">walneyk@hotmail.com</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// SIDEBAR
+// ============================================================
+function Sidebar({ currentView, setCurrentView, user, onLogout }) {
+  const items = [
+    { id: 'dashboard', label: 'Dashboard', icon: '📊' },
+    { id: 'transactions', label: 'Lançamentos', icon: '💸' },
+    { id: 'recurring', label: 'Recorrentes', icon: '🔄' },
+    { id: 'accounts', label: 'Contas Bancárias', icon: '🏦' },
+    { id: 'transfers', label: 'Transferências', icon: '↔️' },
+    { id: 'creditcards', label: 'Cartões', icon: '💳' },
+    { id: 'piggybanks', label: 'Caixinhas', icon: '🐷' },
+    { id: 'bills', label: 'Contas Pagar/Receber', icon: '📋' },
+    { id: 'loans', label: 'Empréstimos', icon: '🤝' },
+    { id: 'investments', label: 'Investimentos', icon: '📈' },
+    { id: 'categories', label: 'Categorias', icon: '🏷️' },
+    { id: 'reports', label: 'Relatórios', icon: '' },
+    { id: 'data', label: 'Dados / Backup', icon: '💾' },
+    { id: 'about', label: 'Sobre / Ajuda', icon: 'ℹ️' },
+  ];
+  return (
+    <aside className="w-64 bg-gradient-to-b from-slate-900 to-slate-800 text-white flex flex-col min-h-screen flex-shrink-0">
+      <div className="p-6 border-b border-slate-700">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-lg flex items-center justify-center text-xl">💰</div>
+          <div>
+            <h1 className="text-xl font-bold">FluxoPro</h1>
+            <p className="text-xs text-slate-400">MVP v0.1.0</p>
+          </div>
+        </div>
+      </div>
+      <nav className="flex-1 py-4 overflow-y-auto">
+        {items.map(item => (
+          <button key={item.id} onClick={() => setCurrentView(item.id)}
+            className={'sidebar-item w-full flex items-center gap-3 px-6 py-3 text-left text-sm ' + (currentView === item.id ? 'active' : 'text-slate-300')}>
+            <span className="text-lg">{item.icon}</span>{item.label}
+          </button>
+        ))}
+      </nav>
+      <div className="p-4 border-t border-slate-700">
+        <div className="flex items-center gap-3 mb-3 px-2">
+          <div className="w-9 h-9 rounded-full bg-gradient-to-br from-indigo-400 to-purple-500 flex items-center justify-center font-bold text-sm">{user.name.charAt(0).toUpperCase()}</div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate">{user.name}</p>
+            <p className="text-xs text-slate-400 truncate">{user.email}</p>
+          </div>
+        </div>
+        <button onClick={onLogout} className="w-full flex items-center justify-center gap-2 px-4 py-2 text-sm text-slate-300 hover:text-white hover:bg-slate-700 rounded-lg"> Sair</button>
+      </div>
+    </aside>
+  );
+}
+
+// ============================================================
+// DASHBOARD COM KPIS FINANCEIROS
+// ============================================================
+function Dashboard({ data }) {
+  const txs = data.transactions || [];
+  const accounts = data.accounts || [];
+  const cards = data.creditCards || [];
+  const pigs = data.piggyBanks || [];
+  const investments = data.investments || [];
+  const loans = data.loans || [];
+  const billsPay = data.billsPay || [];
+  const billsRecv = data.billsRecv || [];
+
+  // CÁLCULOS FINANCEIROS
+  // Total Entradas = soma de todos os lançamentos do tipo 'entrada'
+  const totalEntradas = txs.filter(t => t.type === 'entrada').reduce((s, t) => s + parseNum(t.amount), 0);
+  // Total Saídas = soma de todos os lançamentos do tipo 'saida'
+  const totalSaidas = txs.filter(t => t.type === 'saida').reduce((s, t) => s + parseNum(t.amount), 0);
+  // Saldo em Contas = soma dos saldos de todas as contas bancárias
+  const totalContas = accounts.reduce((s, a) => s + parseNum(a.balance), 0);
+  // Saldo em Caixinhas = soma dos saldos de todas as caixinhas (reserva)
+  const totalCaixinhas = pigs.reduce((s, p) => s + parseNum(p.balance), 0);
+  // Total Investido = soma dos valores aplicados em investimentos
+  const totalInvestido = investments.reduce((s, i) => s + parseNum(i.value), 0);
+  // PATRIMÔNIO LÍQUIDO = Contas + Caixinhas + Investimentos - Empréstimos pendentes
+  // Fórmula: PL = Ativos - Passivos
+  const totalEmprestimos = loans.filter(l => l.status !== 'quitado').reduce((s, l) => s + (parseNum(l.balance) || parseNum(l.value)), 0);
+  const patrimonioLiquido = totalContas + totalCaixinhas + totalInvestido - totalEmprestimos;
+  
+  // Reserva de Emergência (meta: 6 meses de despesas)
+  const despesasMensais = totalSaidas / Math.max(1, new Set(txs.map(t => t.date?.substring(0,7))).size);
+  const reservaEmergenciaMeses = despesasMensais > 0 ? (totalCaixinhas + totalContas) / despesasMensais : 0;
+  
+  // Liquidez Imediata = (Contas + Caixinhas) / Despesas mensais
+  const liquidezImediata = despesasMensais > 0 ? (totalContas + totalCaixinhas) / despesasMensais : 0;
+  
+  // Taxa de Poupança = (Entradas - Saídas) / Entradas * 100
+  // Indica quanto % da renda está sendo poupado
+  const taxaPoupanca = totalEntradas > 0 ? ((totalEntradas - totalSaidas) / totalEntradas) * 100 : 0;
+  
+  // Endividamento = Empréstimos / Patrimônio * 100
+  const endividamento = patrimonioLiquido > 0 ? (totalEmprestimos / patrimonioLiquido) * 100 : 0;
+  
+  // Contas vencidas
+  const todayStr = today();
+  const contasVencidas = billsPay.filter(b => b.status === 'pendente' && b.dueDate < todayStr).length;
+  const contasReceberVencidas = billsRecv.filter(b => b.status === 'pendente' && b.dueDate < todayStr).length;
+
+  // Evolução do saldo
+  const sorted = txs.slice().sort((a, b) => new Date(a.date) - new Date(b.date));
+  let running = 0;
+  const evolution = [{ date: 'Início', saldo: 0 }];
+  sorted.forEach(t => {
+    running += t.type === 'entrada' ? parseNum(t.amount) : -parseNum(t.amount);
+    evolution.push({ date: fmtDate(t.date), saldo: running });
+  });
+
+  // Dados mensais para gráfico
+  const monthly = {};
+  txs.forEach(t => {
+    const m = t.date ? t.date.substring(0, 7) : 'N/A';
+    if (!monthly[m]) monthly[m] = { month: m, entradas: 0, saidas: 0 };
+    if (t.type === 'entrada') monthly[m].entradas += parseNum(t.amount);
+    else monthly[m].saidas += parseNum(t.amount);
+  });
+  const barData = Object.keys(monthly).map(k => monthly[k]).sort((a,b) => a.month.localeCompare(b.month));
+
+  // Por categoria
+  const byCat = {};
+  txs.forEach(t => {
+    if (!byCat[t.category]) byCat[t.category] = { name: t.category, value: 0, type: t.type };
+    byCat[t.category].value += parseNum(t.amount);
+  });
+  const pieSaidas = Object.keys(byCat).filter(k => byCat[k].type === 'saida').map(k => byCat[k]).sort((a,b) => b.value - a.value).slice(0, 8);
+
+  return (
+    <div className="fade-in">
+      <div className="mb-6">
+        <h1 className="text-3xl font-bold text-gray-800">Dashboard Financeiro</h1>
+        <p className="text-gray-500 mt-1">Visão completa da sua saúde financeira</p>
+      </div>
+
+      {/* KPIs Principais */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
+        <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-5 text-white card-hover shadow-lg">
+          <div className="flex items-center justify-between mb-2"><span className="text-sm opacity-90">Patrimônio Líquido</span><span className="text-2xl">💎</span></div>
+          <p className="text-2xl font-bold">{fmtMoney(patrimonioLiquido)}</p>
+          <p className="text-xs opacity-75 mt-1">Ativos - Passivos</p>
+        </div>
+        <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-5 text-white card-hover shadow-lg">
+          <div className="flex items-center justify-between mb-2"><span className="text-sm opacity-90">Entradas</span><span className="text-2xl"></span></div>
+          <p className="text-2xl font-bold">{fmtMoney(totalEntradas)}</p>
+          <p className="text-xs opacity-75 mt-1">{txs.filter(t => t.type === 'entrada').length} lançamentos</p>
+        </div>
+        <div className="bg-gradient-to-br from-rose-500 to-red-600 rounded-2xl p-5 text-white card-hover shadow-lg">
+          <div className="flex items-center justify-between mb-2"><span className="text-sm opacity-90">Saídas</span><span className="text-2xl"></span></div>
+          <p className="text-2xl font-bold">{fmtMoney(totalSaidas)}</p>
+          <p className="text-xs opacity-75 mt-1">{txs.filter(t => t.type === 'saida').length} lançamentos</p>
+        </div>
+        <div className="bg-gradient-to-br from-amber-500 to-orange-600 rounded-2xl p-5 text-white card-hover shadow-lg">
+          <div className="flex items-center justify-between mb-2"><span className="text-sm opacity-90">Taxa de Poupança</span><span className="text-2xl">🎯</span></div>
+          <p className="text-2xl font-bold">{taxaPoupanca.toFixed(1)}%</p>
+          <p className="text-xs opacity-75 mt-1">{taxaPoupanca >= 20 ? '✅ Excelente' : taxaPoupanca >= 10 ? '️ Regular' : '❌ Baixa'}</p>
+        </div>
+      </div>
+
+      {/* KPIs Secundários */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+        <div className="bg-white rounded-xl p-4 border border-gray-100">
+          <p className="text-xs text-gray-500">💰 Contas</p>
+          <p className="text-lg font-bold text-gray-800">{fmtMoney(totalContas)}</p>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-gray-100">
+          <p className="text-xs text-gray-500">🐷 Caixinhas</p>
+          <p className="text-lg font-bold text-gray-800">{fmtMoney(totalCaixinhas)}</p>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-gray-100">
+          <p className="text-xs text-gray-500">📈 Investimentos</p>
+          <p className="text-lg font-bold text-gray-800">{fmtMoney(totalInvestido)}</p>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-gray-100">
+          <p className="text-xs text-gray-500">🤝 Empréstimos</p>
+          <p className="text-lg font-bold text-rose-600">{fmtMoney(totalEmprestimos)}</p>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-gray-100">
+          <p className="text-xs text-gray-500">️ Reserva (meses)</p>
+          <p className="text-lg font-bold text-gray-800">{reservaEmergenciaMeses.toFixed(1)}</p>
+          <p className="text-xs text-gray-500">Meta: 6 meses</p>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-gray-100">
+          <p className="text-xs text-gray-500"> Liquidez</p>
+          <p className="text-lg font-bold text-gray-800">{liquidezImediata.toFixed(1)}x</p>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-gray-100">
+          <p className="text-xs text-gray-500">📋 A Pagar Vencidas</p>
+          <p className="text-lg font-bold text-rose-600">{contasVencidas}</p>
+        </div>
+        <div className="bg-white rounded-xl p-4 border border-gray-100">
+          <p className="text-xs text-gray-500">📋 A Receber Vencidas</p>
+          <p className="text-lg font-bold text-amber-600">{contasReceberVencidas}</p>
+        </div>
+      </div>
+
+      {/* Gráficos */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 mb-6">
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <h3 className="text-lg font-bold text-gray-800 mb-4">📊 Evolução do Saldo</h3>
+          <AreaChart data={evolution} />
+        </div>
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <h3 className="text-lg font-bold text-gray-800 mb-4">📊 Entradas vs Saídas</h3>
+          <BarChart data={barData} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <h3 className="text-lg font-bold text-gray-800 mb-4"> Distribuição de Saídas</h3>
+          <DonutChart data={pieSaidas} />
+        </div>
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <h3 className="text-lg font-bold text-gray-800 mb-4">📝 Últimos Lançamentos</h3>
+          {txs.length === 0 ? <p className="text-gray-400 text-center py-8">Nenhum lançamento</p> : (
+            <div className="space-y-2 max-h-80 overflow-y-auto">
+              {txs.slice().sort((a,b) => new Date(b.date) - new Date(a.date)).slice(0, 8).map(t => (
+                <div key={t.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className={'w-2 h-10 rounded-full ' + (t.type === 'entrada' ? 'bg-emerald-500' : 'bg-rose-500')}></div>
+                    <div>
+                      <p className="font-medium text-gray-800 text-sm">{t.category || '-'}</p>
+                      <p className="text-xs text-gray-500">{fmtDate(t.date)}</p>
+                    </div>
+                  </div>
+                  <p className={'font-bold text-sm ' + (t.type === 'entrada' ? 'text-emerald-600' : 'text-rose-600')}>
+                    {t.type === 'entrada' ? '+' : '-'}{fmtMoney(t.amount)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// CONTAS BANCÁRIAS
+// ============================================================
+function AccountsScreen({ data, setData, toast }) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ name: '', bank: '', agency: '', account: '', balance: '0', color: '#6366f1' });
+  const [viewMode, setViewMode] = useState('cards'); // cards ou consolidated
+
+  function openNew() { setEditing(null); setForm({ name: '', bank: '', agency: '', account: '', balance: '0', color: '#6366f1' }); setModalOpen(true); }
+  function openEdit(a) { setEditing(a); setForm({ name: a.name, bank: a.bank || '', agency: a.agency || '', account: a.account || '', balance: String(a.balance || 0), color: a.color || '#6366f1' }); setModalOpen(true); }
+
+  function handleSave() {
+    if (!form.name) { toast('Informe o nome', 'error'); return; }
+    const accounts = data.accounts || [];
+    if (editing) {
+      setData({ ...data, accounts: accounts.map(a => a.id === editing.id ? { ...form, id: editing.id, balance: parseNum(form.balance) } : a) });
+    } else {
+      setData({ ...data, accounts: [...accounts, { ...form, id: uid(), balance: parseNum(form.balance) }] });
+    }
+    setModalOpen(false);
+    toast('Conta salva', 'success');
+  }
+
+  function handleDelete(id) {
+    if (!confirm('Confirma a exclusão?')) return;
+    setData({ ...data, accounts: (data.accounts || []).filter(a => a.id !== id) });
+    toast('Conta excluída', 'success');
+  }
+
+  const totalBalance = (data.accounts || []).reduce((s, a) => s + parseNum(a.balance), 0);
+
+  return (
+    <div className="fade-in">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-800">Contas Bancárias</h1>
+          <p className="text-gray-500 mt-1">Saldo total: <span className="font-bold text-indigo-600">{fmtMoney(totalBalance)}</span></p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setViewMode('cards')} className={'tab-btn ' + (viewMode === 'cards' ? 'active' : '')}>Individual</button>
+          <button onClick={() => setViewMode('consolidated')} className={'tab-btn ' + (viewMode === 'consolidated' ? 'active' : '')}>Consolidado</button>
+          <button onClick={openNew} className="btn-primary flex items-center gap-2"> Nova Conta</button>
+        </div>
+      </div>
+
+      {viewMode === 'consolidated' ? (
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-5">
+          <h3 className="font-bold text-gray-800 mb-4">💼 Visão Consolidada</h3>
+          <div className="space-y-3">
+            {(data.accounts || []).map(a => {
+              const pct = totalBalance > 0 ? (parseNum(a.balance) / totalBalance) * 100 : 0;
+              return (
+                <div key={a.id}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="font-medium text-gray-700">{a.name} {a.bank && <span className="text-gray-400">• {a.bank}</span>}</span>
+                    <span className="font-bold">{fmtMoney(a.balance)} ({pct.toFixed(1)}%)</span>
+                  </div>
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full" style={{width: pct + '%', background: a.color}}></div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="mt-6 pt-4 border-t flex justify-between items-center">
+            <span className="font-bold text-gray-700">TOTAL</span>
+            <span className="text-2xl font-bold text-indigo-600">{fmtMoney(totalBalance)}</span>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {(data.accounts || []).map(a => (
+            <div key={a.id} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 card-hover">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl flex items-center justify-center text-2xl" style={{ backgroundColor: a.color + '20' }}>🏦</div>
+                  <div>
+                    <p className="font-bold text-gray-800">{a.name}</p>
+                    <p className="text-xs text-gray-500">{a.bank || '-'}</p>
+                  </div>
+                </div>
+                <div className="flex gap-1">
+                  <button onClick={() => openEdit(a)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg">✏️</button>
+                  <button onClick={() => handleDelete(a.id)} className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg">🗑️</button>
+                </div>
+              </div>
+              <div className="text-sm text-gray-600 space-y-1">
+                {a.agency && <p>Ag: {a.agency}</p>}
+                {a.account && <p>CC: {a.account}</p>}
+              </div>
+              <div className="mt-4 pt-4 border-t">
+                <p className="text-xs text-gray-500">Saldo atual</p>
+                <p className="text-2xl font-bold text-gray-800">{fmtMoney(a.balance)}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Conta' : 'Nova Conta'} size="md"
+        footer={<div className="flex justify-end gap-3"><button onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button><button onClick={handleSave} className="btn-primary">Salvar</button></div>}>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Nome" required><input className="input-base" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></Field>
+          <Field label="Banco"><input className="input-base" value={form.bank} onChange={e => setForm({...form, bank: e.target.value})} /></Field>
+          <Field label="Agência"><input className="input-base" value={form.agency} onChange={e => setForm({...form, agency: e.target.value})} /></Field>
+          <Field label="Conta"><input className="input-base" value={form.account} onChange={e => setForm({...form, account: e.target.value})} /></Field>
+          <Field label="Saldo (R$)" required><input className="input-base" type="number" step="0.01" value={form.balance} onChange={e => setForm({...form, balance: e.target.value})} /></Field>
+          <Field label="Cor"><input type="color" value={form.color} onChange={e => setForm({...form, color: e.target.value})} className="w-full h-11 rounded-lg border border-gray-300" /></Field>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ============================================================
+// TRANSFERÊNCIAS ENTRE CONTAS E CARTÕES
+// ============================================================
+function TransfersScreen({ data, setData, toast }) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [form, setForm] = useState({ date: today(), fromType: 'account', fromId: '', toType: 'account', toId: '', amount: '', description: '' });
+  const [history, setHistory] = useState(data.transfers || []);
+
+  function openNew() {
+    setForm({ date: today(), fromType: 'account', fromId: (data.accounts && data.accounts[0] ? data.accounts[0].id : ''), toType: 'account', toId: '', amount: '', description: '' });
+    setModalOpen(true);
+  }
+
+  function handleTransfer() {
+    if (!form.fromId || !form.toId || !form.amount || parseNum(form.amount) <= 0) {
+      toast('Preencha origem, destino e valor', 'error'); return;
+    }
+    if (form.fromId === form.toId && form.fromType === form.toType) {
+      toast('Origem e destino devem ser diferentes', 'error'); return;
+    }
+    const amount = parseNum(form.amount);
+    const newTxs = [...(data.transactions || [])];
+    const newAccounts = [...(data.accounts || [])];
+    const newCards = [...(data.creditCards || [])];
+
+    // Débito na origem
+    if (form.fromType === 'account') {
+      const acc = newAccounts.find(a => a.id === form.fromId);
+      if (acc) acc.balance = parseNum(acc.balance) - amount;
+    } else {
+      const card = newCards.find(c => c.id === form.fromId);
+      if (card) card.currentBalance = parseNum(card.currentBalance || 0) - amount;
+    }
+    // Crédito no destino
+    if (form.toType === 'account') {
+      const acc = newAccounts.find(a => a.id === form.toId);
+      if (acc) acc.balance = parseNum(acc.balance) + amount;
+    } else {
+      const card = newCards.find(c => c.id === form.toId);
+      if (card) card.currentBalance = parseNum(card.currentBalance || 0) + amount;
+    }
+
+    // Registra como lançamento de transferência
+    const fromName = form.fromType === 'account' ? (newAccounts.find(a => a.id === form.fromId)?.name || '') : (newCards.find(c => c.id === form.fromId)?.name || '');
+    const toName = form.toType === 'account' ? (newAccounts.find(a => a.id === form.toId)?.name || '') : (newCards.find(c => c.id === form.toId)?.name || '');
+    newTxs.push({
+      id: uid(), date: form.date, transactionDate: form.date, dueDate: form.date,
+      type: 'saida', category: 'Transferência', amount: amount,
+      description: `Transferência: ${fromName} → ${toName} ${form.description ? '- ' + form.description : ''}`,
+      status: 'pago', paymentMethod: 'transferencia', createdAt: new Date().toISOString()
+    });
+
+    const newTransfers = [...history, { id: uid(), ...form, amount, fromName, toName, createdAt: new Date().toISOString() }];
+    setData({ ...data, transactions: newTxs, accounts: newAccounts, creditCards: newCards, transfers: newTransfers });
+    setHistory(newTransfers);
+    setModalOpen(false);
+    toast('Transferência realizada', 'success');
+  }
+
+  return (
+    <div className="fade-in">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-800">Transferências</h1>
+          <p className="text-gray-500 mt-1">Mova dinheiro entre contas e cartões</p>
+        </div>
+        <button onClick={openNew} className="btn-primary flex items-center gap-2">↔️ Nova Transferência</button>
+      </div>
+
+      <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-6 text-white mb-5">
+        <h3 className="font-bold text-lg mb-2">💡 Como funciona?</h3>
+        <p className="text-indigo-100 text-sm">
+          Ao transferir, o valor é <strong>debitado da origem</strong> e <strong>creditado no destino</strong> automaticamente.
+          Um lançamento de "Transferência" é criado para manter o histórico. Você pode transferir entre:
+          Conta → Conta, Conta → Cartão, Cartão → Conta.
+        </p>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="px-5 py-4 border-b"><h3 className="font-bold text-gray-800">Histórico ({history.length})</h3></div>
+        {history.length === 0 ? (
+          <p className="text-center py-12 text-gray-400">Nenhuma transferência realizada</p>
+        ) : (
+          <table className="w-full">
+            <thead className="bg-gray-50"><tr>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Data</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Origem</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Destino</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">Valor</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Descrição</th>
+            </tr></thead>
+            <tbody className="divide-y">
+              {history.slice().reverse().map(t => (
+                <tr key={t.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm">{fmtDate(t.date)}</td>
+                  <td className="px-4 py-3 text-sm"><span className="chip bg-rose-100 text-rose-700">{t.fromName}</span></td>
+                  <td className="px-4 py-3 text-sm"><span className="chip bg-emerald-100 text-emerald-700">{t.toName}</span></td>
+                  <td className="px-4 py-3 text-sm font-bold text-right">{fmtMoney(t.amount)}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{t.description || '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="Nova Transferência" size="md"
+        footer={<div className="flex justify-end gap-3"><button onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button><button onClick={handleTransfer} className="btn-primary">Transferir</button></div>}>
+        <Field label="Data" required><input className="input-base" type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} /></Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Origem - Tipo">
+            <select className="input-base" value={form.fromType} onChange={e => setForm({...form, fromType: e.target.value, fromId: ''})}>
+              <option value="account">Conta Bancária</option>
+              <option value="card">Cartão de Crédito</option>
+            </select>
+          </Field>
+          <Field label="Origem" required>
+            <select className="input-base" value={form.fromId} onChange={e => setForm({...form, fromId: e.target.value})}>
+              <option value="">Selecione...</option>
+              {(form.fromType === 'account' ? data.accounts || [] : data.creditCards || []).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Destino - Tipo">
+            <select className="input-base" value={form.toType} onChange={e => setForm({...form, toType: e.target.value, toId: ''})}>
+              <option value="account">Conta Bancária</option>
+              <option value="card">Cartão de Crédito</option>
+            </select>
+          </Field>
+          <Field label="Destino" required>
+            <select className="input-base" value={form.toId} onChange={e => setForm({...form, toId: e.target.value})}>
+              <option value="">Selecione...</option>
+              {(form.toType === 'account' ? data.accounts || [] : data.creditCards || []).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+            </select>
+          </Field>
+        </div>
+        <Field label="Valor (R$)" required><input className="input-base" type="number" step="0.01" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} /></Field>
+        <Field label="Descrição"><input className="input-base" value={form.description} onChange={e => setForm({...form, description: e.target.value})} /></Field>
+      </Modal>
+    </div>
+  );
+}
+
+// ============================================================
+// CARTÕES DE CRÉDITO
+// ============================================================
+function CreditCardsScreen({ data, setData, toast }) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ name: '', lastDigits: '', limit: '', closingDay: '10', dueDay: '15', flag: 'visa' });
+  const [viewMode, setViewMode] = useState('cards');
+
+  function openNew() { setEditing(null); setForm({ name: '', lastDigits: '', limit: '', closingDay: '10', dueDay: '15', flag: 'visa' }); setModalOpen(true); }
+  function openEdit(c) { setEditing(c); setForm({ name: c.name, lastDigits: c.lastDigits, limit: String(c.limit || ''), closingDay: String(c.closingDay || '10'), dueDay: String(c.dueDay || '15'), flag: c.flag || 'visa' }); setModalOpen(true); }
+
+  function handleSave() {
+    if (!form.name || !form.lastDigits) { toast('Preencha nome e dígitos', 'error'); return; }
+    const cards = data.creditCards || [];
+    const card = { ...form, limit: parseNum(form.limit), closingDay: Number(form.closingDay), dueDay: Number(form.dueDay), currentBalance: editing ? editing.currentBalance || 0 : 0 };
+    if (editing) {
+      setData({ ...data, creditCards: cards.map(c => c.id === editing.id ? { ...card, id: editing.id } : c) });
+    } else {
+      setData({ ...data, creditCards: [...cards, { ...card, id: uid() }] });
+    }
+    setModalOpen(false);
+    toast('Cartão salvo', 'success');
+  }
+
+  function handleDelete(id) {
+    if (!confirm('Confirma a exclusão?')) return;
+    setData({ ...data, creditCards: (data.creditCards || []).filter(c => c.id !== id) });
+    toast('Cartão excluído', 'success');
+  }
+
+  const currentMonth = new Date().toISOString().substring(0, 7);
+  const cardsWithSpending = (data.creditCards || []).map(card => {
+    const spending = (data.transactions || []).filter(t => t.creditCardId === card.id && t.date && t.date.startsWith(currentMonth)).reduce((s, t) => s + parseNum(t.amount), 0);
+    return { ...card, spending, available: parseNum(card.limit) - spending, usagePercent: card.limit ? (spending / parseNum(card.limit)) * 100 : 0 };
+  });
+
+  const totalLimit = cardsWithSpending.reduce((s, c) => s + parseNum(c.limit), 0);
+  const totalSpending = cardsWithSpending.reduce((s, c) => s + c.spending, 0);
+  const totalAvailable = totalLimit - totalSpending;
+
+  return (
+    <div className="fade-in">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-800">Cartões de Crédito</h1>
+          <p className="text-gray-500 mt-1">Limite total: {fmtMoney(totalLimit)} • Usado: {fmtMoney(totalSpending)} • Disponível: {fmtMoney(totalAvailable)}</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setViewMode('cards')} className={'tab-btn ' + (viewMode === 'cards' ? 'active' : '')}>Individual</button>
+          <button onClick={() => setViewMode('consolidated')} className={'tab-btn ' + (viewMode === 'consolidated' ? 'active' : '')}>Consolidado</button>
+          <button onClick={openNew} className="btn-primary flex items-center gap-2">➕ Novo Cartão</button>
+        </div>
+      </div>
+
+      {viewMode === 'consolidated' ? (
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-5">
+          <h3 className="font-bold text-gray-800 mb-4">💳 Visão Consolidada de Cartões</h3>
+          <div className="space-y-3">
+            {cardsWithSpending.map(c => {
+              return (
+                <div key={c.id}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="font-medium">{c.name} ****{c.lastDigits}</span>
+                    <span className="font-bold">{fmtMoney(c.spending)} / {fmtMoney(c.limit)}</span>
+                  </div>
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className={'h-full rounded-full ' + (c.usagePercent > 80 ? 'bg-rose-500' : c.usagePercent > 50 ? 'bg-amber-500' : 'bg-emerald-500')} style={{width: Math.min(c.usagePercent, 100) + '%'}}></div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="grid grid-cols-3 gap-4 mt-6 pt-4 border-t">
+            <div><p className="text-xs text-gray-500">Limite Total</p><p className="text-xl font-bold">{fmtMoney(totalLimit)}</p></div>
+            <div><p className="text-xs text-gray-500">Utilizado</p><p className="text-xl font-bold text-rose-600">{fmtMoney(totalSpending)}</p></div>
+            <div><p className="text-xs text-gray-500">Disponível</p><p className="text-xl font-bold text-emerald-600">{fmtMoney(totalAvailable)}</p></div>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {cardsWithSpending.map(card => (
+            <div key={card.id} className="bg-gradient-to-br from-slate-800 to-slate-900 rounded-2xl p-6 text-white shadow-xl card-hover relative overflow-hidden">
+              <div className="absolute top-0 right-0 w-32 h-32 bg-white/5 rounded-full -mr-16 -mt-16"></div>
+              <div className="relative">
+                <div className="flex items-center justify-between mb-6">
+                  <div className="w-12 h-8 bg-gradient-to-r from-yellow-400 to-yellow-600 rounded-md"></div>
+                  <span className="text-xs font-medium bg-white/10 px-2 py-1 rounded">{(card.flag || '').toUpperCase()}</span>
+                </div>
+                <p className="text-lg font-bold mb-1">{card.name}</p>
+                <p className="text-sm text-slate-300 mb-6">**** **** **** {card.lastDigits}</p>
+                <div className="space-y-3">
+                  <div>
+                    <div className="flex justify-between text-xs text-slate-300 mb-1"><span>Utilizado</span><span>{fmtMoney(card.spending)} / {fmtMoney(card.limit)}</span></div>
+                    <div className="w-full bg-white/10 rounded-full h-2">
+                      <div className={'h-2 rounded-full ' + (card.usagePercent > 80 ? 'bg-rose-500' : card.usagePercent > 50 ? 'bg-amber-500' : 'bg-emerald-500')} style={{width: Math.min(card.usagePercent, 100) + '%'}}></div>
+                    </div>
+                  </div>
+                  <div className="flex justify-between text-sm pt-2 border-t border-white/10">
+                    <span className="text-slate-300">Disponível</span>
+                    <span className="font-bold text-emerald-400">{fmtMoney(card.available)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-slate-400">
+                    <span>Fechamento: dia {card.closingDay}</span>
+                    <span>Vencimento: dia {card.dueDay}</span>
+                  </div>
+                </div>
+                <div className="flex gap-2 mt-4 pt-4 border-t border-white/10">
+                  <button onClick={() => openEdit(card)} className="flex-1 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm">Editar</button>
+                  <button onClick={() => handleDelete(card.id)} className="py-1.5 px-3 bg-rose-500/20 hover:bg-rose-500/30 rounded-lg text-sm text-rose-300">Excluir</button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Cartão' : 'Novo Cartão'} size="sm"
+        footer={<div className="flex justify-end gap-3"><button onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button><button onClick={handleSave} className="btn-primary">Salvar</button></div>}>
+        <Field label="Nome" required><input className="input-base" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></Field>
+        <Field label="Últimos 4 dígitos" required><input className="input-base" value={form.lastDigits} onChange={e => setForm({...form, lastDigits: e.target.value})} maxLength="4" /></Field>
+        <Field label="Limite (R$)" required><input className="input-base" type="number" step="0.01" value={form.limit} onChange={e => setForm({...form, limit: e.target.value})} /></Field>
+        <Field label="Bandeira">
+          <select className="input-base" value={form.flag} onChange={e => setForm({...form, flag: e.target.value})}>
+            <option value="visa">Visa</option><option value="mastercard">Mastercard</option><option value="elo">Elo</option><option value="amex">Amex</option>
+          </select>
+        </Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Dia Fechamento"><input className="input-base" type="number" min="1" max="31" value={form.closingDay} onChange={e => setForm({...form, closingDay: e.target.value})} /></Field>
+          <Field label="Dia Vencimento"><input className="input-base" type="number" min="1" max="31" value={form.dueDay} onChange={e => setForm({...form, dueDay: e.target.value})} /></Field>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ============================================================
+// CAIXINHAS (POUPANÇA/OBJETIVOS)
+// ============================================================
+function PiggyBanksScreen({ data, setData, toast }) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [actionModal, setActionModal] = useState(null); // {type: 'deposit'|'withdraw', pig}
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ name: '', goal: '', balance: '0', color: '#10b981', icon: '🎯' });
+  const [actionAmount, setActionAmount] = useState('');
+
+  function openNew() { setEditing(null); setForm({ name: '', goal: '', balance: '0', color: '#10b981', icon: '🎯' }); setModalOpen(true); }
+  function openEdit(p) { setEditing(p); setForm({ name: p.name, goal: String(p.goal || ''), balance: String(p.balance || 0), color: p.color || '#10b981', icon: p.icon || '🎯' }); setModalOpen(true); }
+
+  function handleSave() {
+    if (!form.name) { toast('Informe o nome', 'error'); return; }
+    const pigs = data.piggyBanks || [];
+    const pig = { ...form, goal: parseNum(form.goal), balance: parseNum(form.balance) };
+    if (editing) {
+      setData({ ...data, piggyBanks: pigs.map(p => p.id === editing.id ? { ...pig, id: editing.id } : p) });
+    } else {
+      setData({ ...data, piggyBanks: [...pigs, { ...pig, id: uid(), createdAt: new Date().toISOString() }] });
+    }
+    setModalOpen(false);
+    toast('Caixinha salva', 'success');
+  }
+
+  function handleAction() {
+    const amount = parseNum(actionAmount);
+    if (amount <= 0) { toast('Valor inválido', 'error'); return; }
+    const pigs = data.piggyBanks || [];
+    const pig = pigs.find(p => p.id === actionModal.pig.id);
+    if (!pig) return;
+    if (actionModal.type === 'withdraw' && parseNum(pig.balance) < amount) { toast('Saldo insuficiente', 'error'); return; }
+    const newBalance = actionModal.type === 'deposit' ? parseNum(pig.balance) + amount : parseNum(pig.balance) - amount;
+    const newPigs = pigs.map(p => p.id === pig.id ? { ...p, balance: newBalance } : p);
+    
+    // Registra transação
+    const newTxs = [...(data.transactions || [])];
+    newTxs.push({
+      id: uid(), date: today(), transactionDate: today(), dueDate: today(),
+      type: actionModal.type === 'deposit' ? 'saida' : 'entrada',
+      category: 'Caixinha', amount: amount,
+      description: (actionModal.type === 'deposit' ? 'Depósito' : 'Resgate') + ' na caixinha: ' + pig.name,
+      status: 'pago', paymentMethod: 'transferencia', createdAt: new Date().toISOString()
+    });
+    setData({ ...data, piggyBanks: newPigs, transactions: newTxs });
+    setActionModal(null);
+    setActionAmount('');
+    toast((actionModal.type === 'deposit' ? 'Depósito' : 'Resgate') + ' realizado', 'success');
+  }
+
+  function handleDelete(id) {
+    if (!confirm('Confirma a exclusão?')) return;
+    setData({ ...data, piggyBanks: (data.piggyBanks || []).filter(p => p.id !== id) });
+    toast('Caixinha excluída', 'success');
+  }
+
+  const totalSaved = (data.piggyBanks || []).reduce((s, p) => s + parseNum(p.balance), 0);
+  const totalGoal = (data.piggyBanks || []).reduce((s, p) => s + parseNum(p.goal), 0);
+
+  return (
+    <div className="fade-in">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-800">Caixinhas</h1>
+          <p className="text-gray-500 mt-1">Total guardado: <span className="font-bold text-emerald-600">{fmtMoney(totalSaved)}</span> de {fmtMoney(totalGoal)}</p>
+        </div>
+        <button onClick={openNew} className="btn-primary flex items-center gap-2"> Nova Caixinha</button>
+      </div>
+
+      <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-6 text-white mb-5">
+        <h3 className="font-bold text-lg mb-2"> O que são Caixinhas?</h3>
+        <p className="text-emerald-50 text-sm">
+          Caixinhas são como "potes" de economia para objetivos específicos (viagem, reserva, carro novo).
+          Você pode fazer <strong>depósitos</strong> (guardar dinheiro) e <strong>resgates</strong> (retirar) a qualquer momento.
+          Cada caixinha tem uma meta e mostra o progresso visualmente.
+        </p>
+      </div>
+
+      {(data.piggyBanks || []).length === 0 ? (
+        <EmptyState icon="🐷" title="Nenhuma caixinha" description="Crie sua primeira caixinha de economia" action={<button onClick={openNew} className="btn-primary">Criar caixinha</button>} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {(data.piggyBanks || []).map(p => {
+            const pct = p.goal > 0 ? (parseNum(p.balance) / parseNum(p.goal)) * 100 : 0;
+            return (
+              <div key={p.id} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 card-hover">
+                <div className="flex items-start justify-between mb-4">
+                  <div className="flex items-center gap-3">
+                    <div className="w-14 h-14 rounded-xl flex items-center justify-center text-3xl" style={{ backgroundColor: p.color + '20' }}>{p.icon}</div>
+                    <div>
+                      <p className="font-bold text-gray-800">{p.name}</p>
+                      <p className="text-xs text-gray-500">Meta: {fmtMoney(p.goal)}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-1">
+                    <button onClick={() => openEdit(p)} className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg">✏️</button>
+                    <button onClick={() => handleDelete(p.id)} className="p-2 text-rose-600 hover:bg-rose-50 rounded-lg">🗑️</button>
+                  </div>
+                </div>
+                <div className="mb-3">
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-gray-600">Progresso</span>
+                    <span className="font-bold">{pct.toFixed(0)}%</span>
+                  </div>
+                  <div className="h-3 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full rounded-full transition-all" style={{width: Math.min(pct, 100) + '%', background: p.color}}></div>
+                  </div>
+                </div>
+                <div className="flex justify-between items-end mb-4">
+                  <div>
+                    <p className="text-xs text-gray-500">Saldo atual</p>
+                    <p className="text-2xl font-bold text-gray-800">{fmtMoney(p.balance)}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs text-gray-500">Falta</p>
+                    <p className="text-sm font-bold text-gray-600">{fmtMoney(Math.max(0, parseNum(p.goal) - parseNum(p.balance)))}</p>
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => { setActionModal({type: 'deposit', pig: p}); setActionAmount(''); }} className="flex-1 btn-success text-sm py-2">💰 Depositar</button>
+                  <button onClick={() => { setActionModal({type: 'withdraw', pig: p}); setActionAmount(''); }} className="flex-1 btn-secondary text-sm py-2">💸 Resgatar</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Caixinha' : 'Nova Caixinha'} size="sm"
+        footer={<div className="flex justify-end gap-3"><button onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button><button onClick={handleSave} className="btn-primary">Salvar</button></div>}>
+        <Field label="Nome" required><input className="input-base" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></Field>
+        <Field label="Ícone (emoji)"><input className="input-base" value={form.icon} onChange={e => setForm({...form, icon: e.target.value})} maxLength="4" /></Field>
+        <Field label="Meta (R$)"><input className="input-base" type="number" step="0.01" value={form.goal} onChange={e => setForm({...form, goal: e.target.value})} /></Field>
+        <Field label="Saldo inicial (R$)"><input className="input-base" type="number" step="0.01" value={form.balance} onChange={e => setForm({...form, balance: e.target.value})} /></Field>
+        <Field label="Cor"><input type="color" value={form.color} onChange={e => setForm({...form, color: e.target.value})} className="w-full h-11 rounded-lg border border-gray-300" /></Field>
+      </Modal>
+
+      <Modal open={!!actionModal} onClose={() => setActionModal(null)} title={actionModal?.type === 'deposit' ? '💰 Depositar' : '💸 Resgatar'} size="sm"
+        footer={<div className="flex justify-end gap-3"><button onClick={() => setActionModal(null)} className="btn-secondary">Cancelar</button><button onClick={handleAction} className={actionModal?.type === 'deposit' ? 'btn-success' : 'btn-primary'}>Confirmar</button></div>}>
+        {actionModal && (
+          <>
+            <p className="text-gray-600 mb-4">{actionModal.type === 'deposit' ? 'Depositar' : 'Resgatar'} na caixinha <strong>{actionModal.pig.name}</strong></p>
+            <p className="text-sm text-gray-500 mb-3">Saldo atual: <strong>{fmtMoney(actionModal.pig.balance)}</strong></p>
+            <Field label="Valor (R$)" required><input className="input-base" type="number" step="0.01" value={actionAmount} onChange={e => setActionAmount(e.target.value)} /></Field>
+          </>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+// ============================================================
+// CONTAS A PAGAR / RECEBER
+// ============================================================
+function BillsScreen({ data, setData, toast }) {
+  const [tab, setTab] = useState('pay');
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ description: '', amount: '', dueDate: today(), category: '', status: 'pendente', accountId: '' });
+
+  const bills = tab === 'pay' ? (data.billsPay || []) : (data.billsRecv || []);
+
+  function openNew() { setEditing(null); setForm({ description: '', amount: '', dueDate: today(), category: '', status: 'pendente', accountId: '' }); setModalOpen(true); }
+  function openEdit(b) { setEditing(b); setForm({ description: b.description, amount: String(b.amount), dueDate: b.dueDate, category: b.category || '', status: b.status, accountId: b.accountId || '' }); setModalOpen(true); }
+
+  function handleSave() {
+    if (!form.description || !form.amount) { toast('Preencha descrição e valor', 'error'); return; }
+    const key = tab === 'pay' ? 'billsPay' : 'billsRecv';
+    const list = data[key] || [];
+    const bill = { ...form, amount: parseNum(form.amount) };
+    if (editing) {
+      setData({ ...data, [key]: list.map(b => b.id === editing.id ? { ...bill, id: editing.id } : b) });
+    } else {
+      setData({ ...data, [key]: [...list, { ...bill, id: uid(), createdAt: new Date().toISOString() }] });
+    }
+    setModalOpen(false);
+    toast('Conta salva', 'success');
+  }
+
+  function handlePay(id) {
+    const key = tab === 'pay' ? 'billsPay' : 'billsRecv';
+    const list = (data[key] || []).map(b => b.id === id ? { ...b, status: b.status === 'pago' ? 'pendente' : 'pago', paidDate: b.status === 'pago' ? null : today() } : b);
+    const bill = (data[key] || []).find(b => b.id === id);
+    // Registra transação ao pagar
+    const newTxs = [...(data.transactions || [])];
+    if (bill && bill.status !== 'pago') {
+      newTxs.push({
+        id: uid(), date: today(), transactionDate: today(), dueDate: bill.dueDate,
+        type: tab === 'pay' ? 'saida' : 'entrada', category: bill.category || 'Conta', amount: bill.amount,
+        description: (tab === 'pay' ? 'Pagamento: ' : 'Recebimento: ') + bill.description,
+        status: 'pago', paymentMethod: 'pix', accountId: bill.accountId || '', createdAt: new Date().toISOString()
+      });
+    }
+    setData({ ...data, [key]: list, transactions: newTxs });
+    toast('Status atualizado', 'success');
+  }
+
+  function handleDelete(id) {
+    if (!confirm('Confirma a exclusão?')) return;
+    const key = tab === 'pay' ? 'billsPay' : 'billsRecv';
+    setData({ ...data, [key]: (data[key] || []).filter(b => b.id !== id) });
+    toast('Conta excluída', 'success');
+  }
+
+  const totalPending = bills.filter(b => b.status === 'pendente').reduce((s, b) => s + parseNum(b.amount), 0);
+  const totalPaid = bills.filter(b => b.status === 'pago').reduce((s, b) => s + parseNum(b.amount), 0);
+  const overdue = bills.filter(b => b.status === 'pendente' && b.dueDate < today()).length;
+
+  return (
+    <div className="fade-in">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-800">Contas a {tab === 'pay' ? 'Pagar' : 'Receber'}</h1>
+          <p className="text-gray-500 mt-1">Pendentes: {fmtMoney(totalPending)} • Pagas: {fmtMoney(totalPaid)} {overdue > 0 && <span className="text-rose-600 font-bold">• {overdue} vencidas!</span>}</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={() => setTab('pay')} className={'tab-btn ' + (tab === 'pay' ? 'active' : '')}>📋 A Pagar</button>
+          <button onClick={() => setTab('recv')} className={'tab-btn ' + (tab === 'recv' ? 'active' : '')}>📋 A Receber</button>
+          <button onClick={openNew} className="btn-primary flex items-center gap-2">➕ Nova Conta</button>
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <table className="w-full">
+          <thead className="bg-gray-50"><tr>
+            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Vencimento</th>
+            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Descrição</th>
+            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Categoria</th>
+            <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Status</th>
+            <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">Valor</th>
+            <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">Ações</th>
+          </tr></thead>
+          <tbody className="divide-y">
+            {bills.length === 0 ? (
+              <tr><td colSpan="6" className="text-center py-12 text-gray-400">Nenhuma conta</td></tr>
+            ) : bills.sort((a,b) => new Date(a.dueDate) - new Date(b.dueDate)).map(b => {
+              const isOverdue = b.status === 'pendente' && b.dueDate < today();
+              return (
+                <tr key={b.id} className={'hover:bg-gray-50 ' + (isOverdue ? 'bg-rose-50' : '')}>
+                  <td className="px-4 py-3 text-sm">{fmtDate(b.dueDate)} {isOverdue && <span className="chip bg-rose-100 text-rose-700 ml-1">Vencida</span>}</td>
+                  <td className="px-4 py-3 text-sm font-medium text-gray-800">{b.description}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{b.category || '-'}</td>
+                  <td className="px-4 py-3"><span className={'chip ' + (b.status === 'pago' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700')}>{b.status === 'pago' ? 'Pago' : 'Pendente'}</span></td>
+                  <td className={'px-4 py-3 text-sm font-bold text-right ' + (tab === 'pay' ? 'text-rose-600' : 'text-emerald-600')}>{fmtMoney(b.amount)}</td>
+                  <td className="px-4 py-3 text-right">
+                    <button onClick={() => handlePay(b.id)} className="text-indigo-600 hover:text-indigo-800 mr-2 text-sm">{b.status === 'pago' ? '↩️' : '✅'}</button>
+                    <button onClick={() => openEdit(b)} className="text-indigo-600 hover:text-indigo-800 mr-2">✏️</button>
+                    <button onClick={() => handleDelete(b.id)} className="text-rose-600">🗑️</button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={'Nova Conta a ' + (tab === 'pay' ? 'Pagar' : 'Receber')} size="md"
+        footer={<div className="flex justify-end gap-3"><button onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button><button onClick={handleSave} className="btn-primary">Salvar</button></div>}>
+        <Field label="Descrição" required><input className="input-base" value={form.description} onChange={e => setForm({...form, description: e.target.value})} /></Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Valor (R$)" required><input className="input-base" type="number" step="0.01" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} /></Field>
+          <Field label="Vencimento" required><input className="input-base" type="date" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} /></Field>
+          <Field label="Categoria"><input className="input-base" value={form.category} onChange={e => setForm({...form, category: e.target.value})} /></Field>
+          <Field label="Status">
+            <select className="input-base" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
+              <option value="pendente">Pendente</option><option value="pago">Pago</option>
+            </select>
+          </Field>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ============================================================
+// EMPRÉSTIMOS
+// ============================================================
+function LoansScreen({ data, setData, toast }) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ name: '', value: '', balance: '', rate: '', installments: '12', startDate: today(), status: 'ativo' });
+
+  function openNew() { setEditing(null); setForm({ name: '', value: '', balance: '', rate: '', installments: '12', startDate: today(), status: 'ativo' }); setModalOpen(true); }
+  function openEdit(l) { setEditing(l); setForm({ name: l.name, value: String(l.value), balance: String(l.balance || l.value), rate: String(l.rate || ''), installments: String(l.installments || 12), startDate: l.startDate, status: l.status || 'ativo' }); setModalOpen(true); }
+
+  function handleSave() {
+    if (!form.name || !form.value) { toast('Preencha nome e valor', 'error'); return; }
+    const loans = data.loans || [];
+    const loan = { ...form, value: parseNum(form.value), balance: parseNum(form.balance || form.value), rate: parseNum(form.rate), installments: Number(form.installments) || 12 };
+    if (editing) {
+      setData({ ...data, loans: loans.map(l => l.id === editing.id ? { ...loan, id: editing.id } : l) });
+    } else {
+      setData({ ...data, loans: [...loans, { ...loan, id: uid(), createdAt: new Date().toISOString() }] });
+    }
+    setModalOpen(false);
+    toast('Empréstimo salvo', 'success');
+  }
+
+  function handlePayInstallment(id) {
+    const loans = data.loans || [];
+    const loan = loans.find(l => l.id === id);
+    if (!loan) return;
+    const installmentValue = parseNum(loan.value) / loan.installments;
+    const newBalance = Math.max(0, parseNum(loan.balance) - installmentValue);
+    const newLoans = loans.map(l => l.id === id ? { ...l, balance: newBalance, status: newBalance <= 0 ? 'quitado' : 'ativo' } : l);
+    const newTxs = [...(data.transactions || [])];
+    newTxs.push({
+      id: uid(), date: today(), transactionDate: today(), dueDate: today(),
+      type: 'saida', category: 'Empréstimo', amount: installmentValue,
+      description: 'Parcela empréstimo: ' + loan.name,
+      status: 'pago', paymentMethod: 'transferencia', createdAt: new Date().toISOString()
+    });
+    setData({ ...data, loans: newLoans, transactions: newTxs });
+    toast('Parcela paga', 'success');
+  }
+
+  function handleDelete(id) {
+    if (!confirm('Confirma a exclusão?')) return;
+    setData({ ...data, loans: (data.loans || []).filter(l => l.id !== id) });
+    toast('Empréstimo excluído', 'success');
+  }
+
+  const totalDebt = (data.loans || []).filter(l => l.status !== 'quitado').reduce((s, l) => s + parseNum(l.balance), 0);
+  const totalOriginal = (data.loans || []).reduce((s, l) => s + parseNum(l.value), 0);
+
+  return (
+    <div className="fade-in">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-800">Empréstimos</h1>
+          <p className="text-gray-500 mt-1">Dívida total: <span className="font-bold text-rose-600">{fmtMoney(totalDebt)}</span> de {fmtMoney(totalOriginal)}</p>
+        </div>
+        <button onClick={openNew} className="btn-primary flex items-center gap-2">➕ Novo Empréstimo</button>
+      </div>
+
+      {(data.loans || []).length === 0 ? (
+        <EmptyState icon="🤝" title="Nenhum empréstimo" description="Registre seus empréstimos e financiamentos" action={<button onClick={openNew} className="btn-primary">Adicionar</button>} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+          {(data.loans || []).map(l => {
+            const pct = parseNum(l.value) > 0 ? (parseNum(l.balance) / parseNum(l.value)) * 100 : 0;
+            return (
+              <div key={l.id} className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 card-hover">
+                <div className="flex items-start justify-between mb-4">
+                  <div>
+                    <p className="font-bold text-gray-800 text-lg">{l.name}</p>
+                    <p className="text-xs text-gray-500">{l.installments}x • Taxa: {l.rate}% a.m.</p>
+                  </div>
+                  <span className={'chip ' + (l.status === 'quitado' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700')}>{l.status === 'quitado' ? 'Quitado' : 'Ativo'}</span>
+                </div>
+                <div className="mb-3">
+                  <div className="flex justify-between text-sm mb-1"><span className="text-gray-600">Pago</span><span className="font-bold">{(100 - pct).toFixed(0)}%</span></div>
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-full bg-emerald-500 rounded-full" style={{width: (100 - pct) + '%'}}></div>
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm mb-4">
+                  <div><p className="text-xs text-gray-500">Valor original</p><p className="font-bold">{fmtMoney(l.value)}</p></div>
+                  <div><p className="text-xs text-gray-500">Saldo devedor</p><p className="font-bold text-rose-600">{fmtMoney(l.balance)}</p></div>
+                </div>
+                <div className="flex gap-2">
+                  {l.status !== 'quitado' && <button onClick={() => handlePayInstallment(l.id)} className="flex-1 btn-success text-sm py-2">💰 Pagar Parcela</button>}
+                  <button onClick={() => openEdit(l)} className="btn-secondary text-sm py-2 px-3">✏️</button>
+                  <button onClick={() => handleDelete(l.id)} className="btn-danger text-sm py-2 px-3">🗑️</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Empréstimo' : 'Novo Empréstimo'} size="md"
+        footer={<div className="flex justify-end gap-3"><button onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button><button onClick={handleSave} className="btn-primary">Salvar</button></div>}>
+        <Field label="Nome" required><input className="input-base" value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Ex: Financiamento Carro" /></Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Valor Total (R$)" required><input className="input-base" type="number" step="0.01" value={form.value} onChange={e => setForm({...form, value: e.target.value})} /></Field>
+          <Field label="Saldo Atual (R$)"><input className="input-base" type="number" step="0.01" value={form.balance} onChange={e => setForm({...form, balance: e.target.value})} /></Field>
+          <Field label="Taxa (% a.m.)"><input className="input-base" type="number" step="0.01" value={form.rate} onChange={e => setForm({...form, rate: e.target.value})} /></Field>
+          <Field label="Parcelas"><input className="input-base" type="number" value={form.installments} onChange={e => setForm({...form, installments: e.target.value})} /></Field>
+          <Field label="Data Início"><input className="input-base" type="date" value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} /></Field>
+          <Field label="Status">
+            <select className="input-base" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
+              <option value="ativo">Ativo</option><option value="quitado">Quitado</option>
+            </select>
+          </Field>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ============================================================
+// INVESTIMENTOS
+// ============================================================
+function InvestmentsScreen({ data, setData, toast }) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ name: '', type: 'renda-fixa', value: '', rate: '', startDate: today(), status: 'ativo' });
+
+  function openNew() { setEditing(null); setForm({ name: '', type: 'renda-fixa', value: '', rate: '', startDate: today(), status: 'ativo' }); setModalOpen(true); }
+  function openEdit(i) { setEditing(i); setForm({ name: i.name, type: i.type || 'renda-fixa', value: String(i.value), rate: String(i.rate || ''), startDate: i.startDate, status: i.status || 'ativo' }); setModalOpen(true); }
+
+  function handleSave() {
+    if (!form.name || !form.value) { toast('Preencha nome e valor', 'error'); return; }
+    const investments = data.investments || [];
+    const inv = { ...form, value: parseNum(form.value), rate: parseNum(form.rate) };
+    if (editing) {
+      setData({ ...data, investments: investments.map(i => i.id === editing.id ? { ...inv, id: editing.id } : i) });
+    } else {
+      setData({ ...data, investments: [...investments, { ...inv, id: uid(), createdAt: new Date().toISOString() }] });
+    }
+    setModalOpen(false);
+    toast('Investimento salvo', 'success');
+  }
+
+  function handleDelete(id) {
+    if (!confirm('Confirma a exclusão?')) return;
+    setData({ ...data, investments: (data.investments || []).filter(i => i.id !== id) });
+    toast('Investimento excluído', 'success');
+  }
+
+  const totalInvested = (data.investments || []).reduce((s, i) => s + parseNum(i.value), 0);
+  const byType = {};
+  (data.investments || []).forEach(i => { byType[i.type] = (byType[i.type] || 0) + parseNum(i.value); });
+
+  return (
+    <div className="fade-in">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-800">Investimentos</h1>
+          <p className="text-gray-500 mt-1">Total investido: <span className="font-bold text-emerald-600">{fmtMoney(totalInvested)}</span></p>
+        </div>
+        <button onClick={openNew} className="btn-primary flex items-center gap-2"> Novo Investimento</button>
+      </div>
+
+      {Object.keys(byType).length > 0 && (
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100 mb-5">
+          <h3 className="font-bold text-gray-800 mb-3">📊 Por Tipo</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            {Object.entries(byType).map(([type, val]) => (
+              <div key={type} className="p-3 bg-gray-50 rounded-lg">
+                <p className="text-xs text-gray-500 capitalize">{type.replace('-', ' ')}</p>
+                <p className="font-bold text-gray-800">{fmtMoney(val)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {(data.investments || []).length === 0 ? (
+        <EmptyState icon="📈" title="Nenhum investimento" description="Registre seus investimentos" action={<button onClick={openNew} className="btn-primary">Adicionar</button>} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {(data.investments || []).map(i => (
+            <div key={i.id} className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-6 text-white card-hover">
+              <div className="flex justify-between items-start mb-4">
+                <div>
+                  <p className="font-bold text-lg">{i.name}</p>
+                  <p className="text-xs text-emerald-100 capitalize">{(i.type || '').replace('-', ' ')}</p>
+                </div>
+                <span className="text-2xl">📈</span>
+              </div>
+              <div className="mb-4">
+                <p className="text-xs text-emerald-100">Valor aplicado</p>
+                <p className="text-2xl font-bold">{fmtMoney(i.value)}</p>
+              </div>
+              {i.rate && <p className="text-sm text-emerald-100 mb-4">Rentabilidade: {i.rate}%</p>}
+              <div className="flex gap-2 pt-4 border-t border-white/20">
+                <button onClick={() => openEdit(i)} className="flex-1 py-1.5 bg-white/10 hover:bg-white/20 rounded-lg text-sm">✏️ Editar</button>
+                <button onClick={() => handleDelete(i.id)} className="py-1.5 px-3 bg-rose-500/20 hover:bg-rose-500/30 rounded-lg text-sm">🗑️</button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Investimento' : 'Novo Investimento'} size="md"
+        footer={<div className="flex justify-end gap-3"><button onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button><button onClick={handleSave} className="btn-primary">Salvar</button></div>}>
+        <Field label="Nome" required><input className="input-base" value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Ex: CDB Banco X" /></Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Tipo">
+            <select className="input-base" value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
+              <option value="renda-fixa">Renda Fixa</option><option value="acoes">Ações</option><option value="fiis">FIIs</option><option value="crypto">Cripto</option><option value="poupanca">Poupança</option><option value="tesouro">Tesouro</option><option value="outro">Outro</option>
+            </select>
+          </Field>
+          <Field label="Valor (R$)" required><input className="input-base" type="number" step="0.01" value={form.value} onChange={e => setForm({...form, value: e.target.value})} /></Field>
+          <Field label="Rentabilidade (%)"><input className="input-base" type="number" step="0.01" value={form.rate} onChange={e => setForm({...form, rate: e.target.value})} /></Field>
+          <Field label="Data Início"><input className="input-base" type="date" value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} /></Field>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ============================================================
+// LANÇAMENTOS
+// ============================================================
+function TransactionsScreen({ data, setData, toast }) {
+  const [filter, setFilter] = useState({ type: 'all', category: 'all', account: 'all', status: 'all', dateFrom: '', dateTo: '', search: '' });
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ date: today(), transactionDate: today(), dueDate: '', type: 'saida', category: '', amount: '', description: '', accountId: '', paymentMethod: 'pix', creditCardId: '', status: 'pago', installment: 0, installmentOf: 0 });
+
+  function openNew() {
+    setEditing(null);
+    setForm({ date: today(), transactionDate: today(), dueDate: today(), type: 'saida', category: '', amount: '', description: '', accountId: (data.accounts && data.accounts[0] ? data.accounts[0].id : ''), paymentMethod: 'pix', creditCardId: '', status: 'pago', installment: 0, installmentOf: 0 });
+    setModalOpen(true);
+  }
+  function openEdit(t) {
+    setEditing(t);
+    setForm({ date: t.date || today(), transactionDate: t.transactionDate || t.date || today(), dueDate: t.dueDate || t.date || today(), type: t.type, category: t.category || '', amount: String(t.amount || ''), description: t.description || '', accountId: t.accountId || '', paymentMethod: t.paymentMethod || 'pix', creditCardId: t.creditCardId || '', status: t.status || 'pago', installment: t.installment || 0, installmentOf: t.installmentOf || 0 });
+    setModalOpen(true);
+  }
+
+  function handleSave() {
+    if (!form.date || !form.category || !form.amount) { toast('Preencha data, categoria e valor', 'error'); return; }
+    const txs = data.transactions || [];
+    const tx = { ...form, amount: parseNum(form.amount), installment: Number(form.installment) || 0, installmentOf: Number(form.installmentOf) || 0 };
+    if (editing) {
+      setData({ ...data, transactions: txs.map(t => t.id === editing.id ? { ...tx, id: editing.id } : t) });
+    } else {
+      setData({ ...data, transactions: [...txs, { ...tx, id: uid(), createdAt: new Date().toISOString() }] });
+    }
+    setModalOpen(false);
+    toast('Lançamento salvo', 'success');
+  }
+
+  function handleDelete(id) {
+    if (!confirm('Confirma a exclusão?')) return;
+    setData({ ...data, transactions: (data.transactions || []).filter(t => t.id !== id) });
+    toast('Lançamento excluído', 'success');
+  }
+
+  const filtered = useMemo(() => {
+    return (data.transactions || []).filter(t => {
+      if (filter.type !== 'all' && t.type !== filter.type) return false;
+      if (filter.category !== 'all' && t.category !== filter.category) return false;
+      if (filter.account !== 'all' && t.accountId !== filter.account) return false;
+      if (filter.status !== 'all' && t.status !== filter.status) return false;
+      if (filter.dateFrom && t.date < filter.dateFrom) return false;
+      if (filter.dateTo && t.date > filter.dateTo) return false;
+      if (filter.search) {
+        const s = filter.search.toLowerCase();
+        if (!(t.description || '').toLowerCase().includes(s) && !(t.category || '').toLowerCase().includes(s)) return false;
+      }
+      return true;
+    }).sort((a, b) => new Date(b.date) - new Date(a.date));
+  }, [data.transactions, filter]);
+
+  return (
+    <div className="fade-in">
+      <div className="flex items-center justify-between mb-6">
+        <div><h1 className="text-3xl font-bold text-gray-800">Lançamentos</h1><p className="text-gray-500 mt-1">{filtered.length} registros</p></div>
+        <button onClick={openNew} className="btn-primary flex items-center gap-2">➕ Novo Lançamento</button>
+      </div>
+
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-5">
+        <h3 className="font-semibold text-gray-700 mb-3">🔍 Filtros Avançados</h3>
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          <select className="input-base" value={filter.type} onChange={e => setFilter({...filter, type: e.target.value})}>
+            <option value="all">Todos os tipos</option><option value="entrada">Entradas</option><option value="saida">Saídas</option>
+          </select>
+          <select className="input-base" value={filter.category} onChange={e => setFilter({...filter, category: e.target.value})}>
+            <option value="all">Todas categorias</option>
+            {(data.categories || []).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+          </select>
+          <select className="input-base" value={filter.account} onChange={e => setFilter({...filter, account: e.target.value})}>
+            <option value="all">Todas contas</option>
+            {(data.accounts || []).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+          </select>
+          <select className="input-base" value={filter.status} onChange={e => setFilter({...filter, status: e.target.value})}>
+            <option value="all">Todos status</option><option value="pago">Pagos</option><option value="pendente">Pendentes</option><option value="cancelado">Cancelados</option>
+          </select>
+          <input type="date" className="input-base" value={filter.dateFrom} onChange={e => setFilter({...filter, dateFrom: e.target.value})} />
+          <input type="date" className="input-base" value={filter.dateTo} onChange={e => setFilter({...filter, dateTo: e.target.value})} />
+          <input type="text" className="input-base md:col-span-3 lg:col-span-6" value={filter.search} onChange={e => setFilter({...filter, search: e.target.value})} placeholder=" Buscar..." />
+        </div>
+      </div>
+
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50"><tr>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Data</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Tipo</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Categoria</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Descrição</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Status</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">Valor</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">Ações</th>
+            </tr></thead>
+            <tbody className="divide-y">
+              {filtered.length === 0 ? <tr><td colSpan="7" className="text-center py-12 text-gray-400">Nenhum lançamento</td></tr> : filtered.map(t => (
+                <tr key={t.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm">{fmtDate(t.date)}</td>
+                  <td className="px-4 py-3"><span className={'chip ' + (t.type === 'entrada' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700')}>{t.type === 'entrada' ? 'Entrada' : 'Saída'}</span></td>
+                  <td className="px-4 py-3 text-sm">{t.category}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600 max-w-xs truncate">{t.description || '-'} {t.installmentOf > 0 && <span className="chip bg-indigo-100 text-indigo-700 ml-1">{t.installment}/{t.installmentOf}</span>}</td>
+                  <td className="px-4 py-3"><span className={'chip ' + (t.status === 'pago' ? 'bg-emerald-100 text-emerald-700' : t.status === 'cancelado' ? 'bg-gray-200 text-gray-600' : 'bg-amber-100 text-amber-700')}>{t.status}</span></td>
+                  <td className={'px-4 py-3 text-sm font-bold text-right ' + (t.type === 'entrada' ? 'text-emerald-600' : 'text-rose-600')}>{t.type === 'entrada' ? '+' : '-'}{fmtMoney(t.amount)}</td>
+                  <td className="px-4 py-3 text-right">
+                    <button onClick={() => openEdit(t)} className="text-indigo-600 mr-2">✏️</button>
+                    <button onClick={() => handleDelete(t.id)} className="text-rose-600">🗑️</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Lançamento' : 'Novo Lançamento'} size="lg"
+        footer={<div className="flex justify-end gap-3"><button onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button><button onClick={handleSave} className="btn-primary">Salvar</button></div>}>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Field label="Data Cadastro" required><input className="input-base" type="date" value={form.date} onChange={e => setForm({...form, date: e.target.value})} /></Field>
+          <Field label="Data Transação" required><input className="input-base" type="date" value={form.transactionDate} onChange={e => setForm({...form, transactionDate: e.target.value})} /></Field>
+          <Field label="Data Vencimento"><input className="input-base" type="date" value={form.dueDate} onChange={e => setForm({...form, dueDate: e.target.value})} /></Field>
+          <Field label="Tipo" required>
+            <select className="input-base" value={form.type} onChange={e => setForm({...form, type: e.target.value, category: ''})}>
+              <option value="entrada">Entrada</option><option value="saida">Saída</option>
+            </select>
+          </Field>
+          <Field label="Categoria" required>
+            <select className="input-base" value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
+              <option value="">Selecione...</option>
+              {(data.categories || []).filter(c => c.type === form.type).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Valor (R$)" required><input className="input-base" type="number" step="0.01" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} /></Field>
+          <Field label="Conta">
+            <select className="input-base" value={form.accountId} onChange={e => setForm({...form, accountId: e.target.value})}>
+              <option value="">Nenhuma</option>
+              {(data.accounts || []).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Pagamento">
+            <select className="input-base" value={form.paymentMethod} onChange={e => setForm({...form, paymentMethod: e.target.value})}>
+              <option value="dinheiro">Dinheiro</option><option value="pix">PIX</option><option value="debito">Débito</option><option value="credito">Crédito</option><option value="transferencia">Transferência</option><option value="boleto">Boleto</option>
+            </select>
+          </Field>
+          <Field label="Status">
+            <select className="input-base" value={form.status} onChange={e => setForm({...form, status: e.target.value})}>
+              <option value="pago">Pago</option><option value="pendente">Pendente</option><option value="cancelado">Cancelado</option>
+            </select>
+          </Field>
+          <Field label="Parcela Atual"><input className="input-base" type="number" min="0" value={form.installment} onChange={e => setForm({...form, installment: e.target.value})} /></Field>
+          <Field label="Total Parcelas"><input className="input-base" type="number" min="0" value={form.installmentOf} onChange={e => setForm({...form, installmentOf: e.target.value})} /></Field>
+          <div className="md:col-span-3"><Field label="Descrição"><textarea className="input-base" rows="2" value={form.description} onChange={e => setForm({...form, description: e.target.value})}></textarea></Field></div>
+        </div>
+      </Modal>
+    </div>
+  );
+}
+
+// ============================================================
+// RECORRENTES
+// ============================================================
+function RecurringScreen({ data, setData, toast }) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ name: '', category: '', amount: '', frequency: 'mensal', dayOfMonth: '10', startDate: today(), endDate: '', active: true, type: 'saida', accountId: '', paymentMethod: 'boleto' });
+
+  function openNew() { setEditing(null); setForm({ name: '', category: '', amount: '', frequency: 'mensal', dayOfMonth: '10', startDate: today(), endDate: '', active: true, type: 'saida', accountId: '', paymentMethod: 'boleto' }); setModalOpen(true); }
+  function openEdit(r) { setEditing(r); setForm({ name: r.name, category: r.category, amount: String(r.amount), frequency: r.frequency, dayOfMonth: String(r.dayOfMonth), startDate: r.startDate, endDate: r.endDate || '', active: r.active, type: r.type, accountId: r.accountId || '', paymentMethod: r.paymentMethod || 'boleto' }); setModalOpen(true); }
+
+  function handleSave() {
+    if (!form.name || !form.category || !form.amount) { toast('Preencha os campos obrigatórios', 'error'); return; }
+    const recs = data.recurring || [];
+    const rec = { ...form, amount: parseNum(form.amount), dayOfMonth: Number(form.dayOfMonth) || 10 };
+    if (editing) {
+      setData({ ...data, recurring: recs.map(r => r.id === editing.id ? { ...rec, id: editing.id } : r) });
+    } else {
+      setData({ ...data, recurring: [...recs, { ...rec, id: uid(), createdAt: new Date().toISOString() }] });
+    }
+    setModalOpen(false);
+    toast('Recorrência salva', 'success');
+  }
+
+  function handleDelete(id) {
+    if (!confirm('Confirma a exclusão?')) return;
+    setData({ ...data, recurring: (data.recurring || []).filter(r => r.id !== id) });
+    toast('Recorrência excluída', 'success');
+  }
+
+  function generateMonthly() {
+    const recs = (data.recurring || []).filter(r => r.active && r.frequency === 'mensal');
+    if (recs.length === 0) { toast('Nenhuma recorrência ativa', 'error'); return; }
+    const txs = data.transactions || [];
+    const now = new Date();
+    const monthStr = now.toISOString().substring(0, 7);
+    let count = 0;
+    recs.forEach(rec => {
+      const exists = txs.some(t => t.recurringId === rec.id && t.date && t.date.startsWith(monthStr));
+      if (exists) return;
+      const due = new Date(now.getFullYear(), now.getMonth(), rec.dayOfMonth);
+      txs.push({
+        id: uid(), date: today(), transactionDate: today(), dueDate: due.toISOString().split('T')[0],
+        type: rec.type, category: rec.category, amount: rec.amount,
+        description: rec.name + ' (automático)',
+        accountId: rec.accountId || '', paymentMethod: rec.paymentMethod || 'boleto',
+        status: 'pendente', installment: 0, installmentOf: 0, recurringId: rec.id, createdAt: new Date().toISOString(),
+      });
+      count++;
+    });
+    setData({ ...data, transactions: txs });
+    toast(count + ' lançamentos gerados', 'success');
+  }
+
+  return (
+    <div className="fade-in">
+      <div className="flex items-center justify-between mb-6">
+        <div><h1 className="text-3xl font-bold text-gray-800">Lançamentos Recorrentes</h1><p className="text-gray-500 mt-1">Contas fixas automáticas</p></div>
+        <div className="flex gap-2">
+          <button onClick={generateMonthly} className="btn-secondary flex items-center gap-2">🔄 Gerar Mensal</button>
+          <button onClick={openNew} className="btn-primary flex items-center gap-2">➕ Nova Recorrência</button>
+        </div>
+      </div>
+
+      {(data.recurring || []).length === 0 ? (
+        <EmptyState icon="🔄" title="Nenhuma recorrência" description="Cadastre contas fixas como luz, água, aluguel" action={<button onClick={openNew} className="btn-primary">Adicionar</button>} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          {(data.recurring || []).map(r => {
+            const cat = (data.categories || []).find(c => c.name === r.category);
+            return (
+              <div key={r.id} className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 card-hover">
+                <div className="flex items-start justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center text-xl" style={{ backgroundColor: (cat ? cat.color : '#6366f1') + '20' }}>{r.type === 'entrada' ? '' : '📉'}</div>
+                    <div><p className="font-bold text-gray-800">{r.name}</p><p className="text-xs text-gray-500">{r.category}</p></div>
+                  </div>
+                  <span className={'chip ' + (r.active ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-200 text-gray-600')}>{r.active ? 'Ativo' : 'Inativo'}</span>
+                </div>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between"><span className="text-gray-500">Valor:</span><span className="font-bold">{fmtMoney(r.amount)}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Frequência:</span><span className="capitalize">{r.frequency}</span></div>
+                  <div className="flex justify-between"><span className="text-gray-500">Dia venc.:</span><span>{r.dayOfMonth}</span></div>
+                </div>
+                <div className="flex gap-2 mt-4 pt-4 border-t">
+                  <button onClick={() => openEdit(r)} className="flex-1 py-2 bg-indigo-50 text-indigo-700 rounded-lg text-sm font-medium hover:bg-indigo-100">✏️ Editar</button>
+                  <button onClick={() => handleDelete(r.id)} className="py-2 px-3 text-rose-600 hover:bg-rose-50 rounded-lg">🗑️</button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Recorrência' : 'Nova Recorrência'} size="md"
+        footer={<div className="flex justify-end gap-3"><button onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button><button onClick={handleSave} className="btn-primary">Salvar</button></div>}>
+        <Field label="Nome" required><input className="input-base" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></Field>
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Tipo" required>
+            <select className="input-base" value={form.type} onChange={e => setForm({...form, type: e.target.value, category: ''})}>
+              <option value="entrada">Entrada</option><option value="saida">Saída</option>
+            </select>
+          </Field>
+          <Field label="Categoria" required>
+            <select className="input-base" value={form.category} onChange={e => setForm({...form, category: e.target.value})}>
+              <option value="">Selecione...</option>
+              {(data.categories || []).filter(c => c.type === form.type).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+            </select>
+          </Field>
+          <Field label="Valor (R$)" required><input className="input-base" type="number" step="0.01" value={form.amount} onChange={e => setForm({...form, amount: e.target.value})} /></Field>
+          <Field label="Frequência">
+            <select className="input-base" value={form.frequency} onChange={e => setForm({...form, frequency: e.target.value})}>
+              <option value="mensal">Mensal</option><option value="quinzenal">Quinzenal</option><option value="semanal">Semanal</option><option value="anual">Anual</option>
+            </select>
+          </Field>
+          <Field label="Dia Vencimento"><input className="input-base" type="number" min="1" max="31" value={form.dayOfMonth} onChange={e => setForm({...form, dayOfMonth: e.target.value})} /></Field>
+          <Field label="Pagamento">
+            <select className="input-base" value={form.paymentMethod} onChange={e => setForm({...form, paymentMethod: e.target.value})}>
+              <option value="boleto">Boleto</option><option value="debito">Débito Automático</option><option value="pix">PIX</option><option value="credito">Crédito</option>
+            </select>
+          </Field>
+          <Field label="Início"><input className="input-base" type="date" value={form.startDate} onChange={e => setForm({...form, startDate: e.target.value})} /></Field>
+          <Field label="Término (opc.)"><input className="input-base" type="date" value={form.endDate} onChange={e => setForm({...form, endDate: e.target.value})} /></Field>
+        </div>
+        <label className="flex items-center gap-2 mt-2 cursor-pointer"><input type="checkbox" checked={form.active} onChange={e => setForm({...form, active: e.target.checked})} className="w-4 h-4" /><span className="text-sm text-gray-700">Ativo</span></label>
+      </Modal>
+    </div>
+  );
+}
+
+// ============================================================
+// CATEGORIAS
+// ============================================================
+function CategoriesScreen({ data, setData, toast }) {
+  const [modalOpen, setModalOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [form, setForm] = useState({ name: '', type: 'entrada', color: '#6366f1' });
+
+  function openNew() { setEditing(null); setForm({ name: '', type: 'entrada', color: '#6366f1' }); setModalOpen(true); }
+  function openEdit(c) { setEditing(c); setForm({ name: c.name, type: c.type, color: c.color }); setModalOpen(true); }
+
+  function handleSave() {
+    if (!form.name) { toast('Informe o nome', 'error'); return; }
+    const cats = data.categories || [];
+    if (editing) {
+      setData({ ...data, categories: cats.map(c => c.id === editing.id ? { ...form, id: editing.id } : c) });
+    } else {
+      setData({ ...data, categories: [...cats, { ...form, id: uid() }] });
+    }
+    setModalOpen(false);
+    toast('Categoria salva', 'success');
+  }
+
+  function handleDelete(id) {
+    if (!confirm('Confirma a exclusão?')) return;
+    setData({ ...data, categories: (data.categories || []).filter(c => c.id !== id) });
+    toast('Categoria excluída', 'success');
+  }
+
+  return (
+    <div className="fade-in">
+      <div className="flex items-center justify-between mb-6">
+        <div><h1 className="text-3xl font-bold text-gray-800">Categorias</h1><p className="text-gray-500 mt-1">Organize seus lançamentos</p></div>
+        <button onClick={openNew} className="btn-primary flex items-center gap-2">➕ Nova Categoria</button>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {['entrada', 'saida'].map(type => (
+          <div key={type} className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100">
+            <h3 className="font-bold text-gray-800 mb-3 flex items-center gap-2">
+              <span className={'w-3 h-3 rounded-full ' + (type === 'entrada' ? 'bg-emerald-500' : 'bg-rose-500')}></span>
+              {type === 'entrada' ? 'Entradas' : 'Saídas'}
+            </h3>
+            <div className="space-y-2 max-h-96 overflow-y-auto">
+              {(data.categories || []).filter(c => c.type === type).map(c => (
+                <div key={c.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg hover:bg-gray-100">
+                  <div className="flex items-center gap-3">
+                    <div className="w-4 h-4 rounded-full" style={{ backgroundColor: c.color }}></div>
+                    <span className="font-medium text-gray-700 text-sm">{c.name}</span>
+                  </div>
+                  <div className="flex gap-1">
+                    <button onClick={() => openEdit(c)} className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded">✏️</button>
+                    <button onClick={() => handleDelete(c.id)} className="p-1.5 text-rose-600 hover:bg-rose-50 rounded">️</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Modal open={modalOpen} onClose={() => setModalOpen(false)} title={editing ? 'Editar Categoria' : 'Nova Categoria'} size="sm"
+        footer={<div className="flex justify-end gap-3"><button onClick={() => setModalOpen(false)} className="btn-secondary">Cancelar</button><button onClick={handleSave} className="btn-primary">Salvar</button></div>}>
+        <Field label="Nome" required><input className="input-base" value={form.name} onChange={e => setForm({...form, name: e.target.value})} /></Field>
+        <Field label="Tipo" required>
+          <select className="input-base" value={form.type} onChange={e => setForm({...form, type: e.target.value})}>
+            <option value="entrada">Entrada</option><option value="saida">Saída</option>
+          </select>
+        </Field>
+        <Field label="Cor"><input type="color" value={form.color} onChange={e => setForm({...form, color: e.target.value})} className="w-full h-11 rounded-lg border border-gray-300" /></Field>
+      </Modal>
+    </div>
+  );
+}
+
+// ============================================================
+// RELATÓRIOS
+// ============================================================
+function ReportsScreen({ data, toast }) {
+  const [filter, setFilter] = useState({ type: 'all', dateFrom: '', dateTo: '', category: 'all' });
+  const [reportType, setReportType] = useState('general');
+
+  const filtered = useMemo(() => {
+    return (data.transactions || []).filter(t => {
+      if (filter.type !== 'all' && t.type !== filter.type) return false;
+      if (filter.category !== 'all' && t.category !== filter.category) return false;
+      if (filter.dateFrom && t.date < filter.dateFrom) return false;
+      if (filter.dateTo && t.date > filter.dateTo) return false;
+      return true;
+    }).sort((a, b) => new Date(a.date) - new Date(b.date));
+  }, [data.transactions, filter]);
+
+  const totalEntradas = filtered.filter(t => t.type === 'entrada').reduce((s, t) => s + parseNum(t.amount), 0);
+  const totalSaidas = filtered.filter(t => t.type === 'saida').reduce((s, t) => s + parseNum(t.amount), 0);
+
+  const byCategory = {};
+  filtered.forEach(t => {
+    if (!byCategory[t.category]) byCategory[t.category] = { category: t.category, type: t.type, total: 0, count: 0 };
+    byCategory[t.category].total += parseNum(t.amount);
+    byCategory[t.category].count++;
+  });
+
+  function generatePDF() {
+    try {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      doc.setFillColor(99, 102, 241);
+      doc.rect(0, 0, 210, 30, 'F');
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(20);
+      doc.text('FluxoPro - Relatório ' + (reportType === 'general' ? 'Geral' : 'Por Categoria'), 14, 15);
+      doc.setFontSize(10);
+      doc.text('Gerado em: ' + new Date().toLocaleString('pt-BR'), 14, 23);
+      doc.setTextColor(0, 0, 0);
+      doc.setFontSize(14);
+      doc.text('Resumo Financeiro', 14, 45);
+      doc.autoTable({
+        startY: 50,
+        head: [['Descrição', 'Valor']],
+        body: [['Total Entradas', fmtMoney(totalEntradas)], ['Total Saídas', fmtMoney(totalSaidas)], ['Saldo', fmtMoney(totalEntradas - totalSaidas)], ['Lançamentos', String(filtered.length)]],
+        theme: 'striped', headStyles: { fillColor: [99, 102, 241] },
+      });
+      let finalY = doc.lastAutoTable.finalY + 10;
+      doc.setFontSize(14);
+      doc.text('Detalhamento', 14, finalY);
+      doc.autoTable({
+        startY: finalY + 5,
+        head: [['Data', 'Tipo', 'Categoria', 'Descrição', 'Valor']],
+        body: filtered.map(t => [fmtDate(t.date), t.type === 'entrada' ? 'Entrada' : 'Saída', t.category, t.description || '-', fmtMoney(t.amount)]),
+        theme: 'striped', headStyles: { fillColor: [99, 102, 241] }, styles: { fontSize: 8 },
+      });
+      doc.save('relatorio-' + today() + '.pdf');
+      toast('PDF gerado', 'success');
+    } catch(e) { toast('Erro: ' + e.message, 'error'); }
+  }
+
+  function exportCSV() {
+    const headers = ['Data', 'Tipo', 'Categoria', 'Descrição', 'Valor', 'Status'];
+    const rows = filtered.map(t => [t.date, t.type, t.category, t.description || '', String(t.amount), t.status]);
+    const csv = [headers].concat(rows).map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(';')).join('\n');
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'lancamentos-' + today() + '.csv'; a.click();
+    URL.revokeObjectURL(url);
+    toast('CSV exportado', 'success');
+  }
+
+  return (
+    <div className="fade-in">
+      <div className="flex items-center justify-between mb-6">
+        <div><h1 className="text-3xl font-bold text-gray-800">Relatórios</h1><p className="text-gray-500 mt-1">Análise e exportação</p></div>
+        <div className="flex gap-2">
+          <button onClick={exportCSV} className="btn-secondary flex items-center gap-2">📊 CSV</button>
+          <button onClick={generatePDF} className="btn-primary flex items-center gap-2">📄 PDF</button>
+        </div>
+      </div>
+
+      <div className="flex gap-2 mb-5">
+        <button onClick={() => setReportType('general')} className={'tab-btn ' + (reportType === 'general' ? 'active' : '')}>Geral</button>
+        <button onClick={() => setReportType('category')} className={'tab-btn ' + (reportType === 'category' ? 'active' : '')}>Por Categoria</button>
+        <button onClick={() => setReportType('monthly')} className={'tab-btn ' + (reportType === 'monthly' ? 'active' : '')}>Mensal</button>
+      </div>
+
+      <div className="bg-white rounded-2xl p-5 shadow-sm border border-gray-100 mb-5">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+          <select className="input-base" value={filter.type} onChange={e => setFilter({...filter, type: e.target.value})}>
+            <option value="all">Todos os tipos</option><option value="entrada">Entradas</option><option value="saida">Saídas</option>
+          </select>
+          <select className="input-base" value={filter.category} onChange={e => setFilter({...filter, category: e.target.value})}>
+            <option value="all">Todas categorias</option>
+            {(data.categories || []).map(c => <option key={c.id} value={c.name}>{c.name}</option>)}
+          </select>
+          <input type="date" className="input-base" value={filter.dateFrom} onChange={e => setFilter({...filter, dateFrom: e.target.value})} />
+          <input type="date" className="input-base" value={filter.dateTo} onChange={e => setFilter({...filter, dateTo: e.target.value})} />
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-5">
+        <div className="bg-gradient-to-br from-emerald-500 to-teal-600 rounded-2xl p-5 text-white"><p className="text-sm opacity-90">Entradas</p><p className="text-2xl font-bold mt-1">{fmtMoney(totalEntradas)}</p></div>
+        <div className="bg-gradient-to-br from-rose-500 to-red-600 rounded-2xl p-5 text-white"><p className="text-sm opacity-90">Saídas</p><p className="text-2xl font-bold mt-1">{fmtMoney(totalSaidas)}</p></div>
+        <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-5 text-white"><p className="text-sm opacity-90">Saldo</p><p className="text-2xl font-bold mt-1">{fmtMoney(totalEntradas - totalSaidas)}</p></div>
+      </div>
+
+      {reportType === 'category' && (
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-5">
+          <div className="px-5 py-4 border-b"><h3 className="font-bold text-gray-800">Resumo por Categoria</h3></div>
+          <table className="w-full">
+            <thead className="bg-gray-50"><tr>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Categoria</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Tipo</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Qtd</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">Total</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">%</th>
+            </tr></thead>
+            <tbody className="divide-y">
+              {Object.values(byCategory).sort((a,b) => b.total - a.total).map((c, i) => {
+                const total = c.type === 'entrada' ? totalEntradas : totalSaidas;
+                return (
+                  <tr key={i} className="hover:bg-gray-50">
+                    <td className="px-4 py-3 text-sm font-medium">{c.category}</td>
+                    <td className="px-4 py-3"><span className={'chip ' + (c.type === 'entrada' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700')}>{c.type === 'entrada' ? 'Entrada' : 'Saída'}</span></td>
+                    <td className="px-4 py-3 text-sm">{c.count}</td>
+                    <td className={'px-4 py-3 text-sm font-bold text-right ' + (c.type === 'entrada' ? 'text-emerald-600' : 'text-rose-600')}>{fmtMoney(c.total)}</td>
+                    <td className="px-4 py-3 text-sm text-right">{total ? ((c.total / total) * 100).toFixed(1) : 0}%</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="px-5 py-4 border-b"><h3 className="font-bold text-gray-800">Detalhamento ({filtered.length})</h3></div>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50"><tr>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Data</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Tipo</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Categoria</th>
+              <th className="px-4 py-3 text-left text-xs font-semibold text-gray-600">Descrição</th>
+              <th className="px-4 py-3 text-right text-xs font-semibold text-gray-600">Valor</th>
+            </tr></thead>
+            <tbody className="divide-y">
+              {filtered.length === 0 ? <tr><td colSpan="5" className="text-center py-12 text-gray-400">Nenhum registro</td></tr> : filtered.map(t => (
+                <tr key={t.id} className="hover:bg-gray-50">
+                  <td className="px-4 py-3 text-sm">{fmtDate(t.date)}</td>
+                  <td className="px-4 py-3"><span className={'chip ' + (t.type === 'entrada' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700')}>{t.type === 'entrada' ? 'Entrada' : 'Saída'}</span></td>
+                  <td className="px-4 py-3 text-sm">{t.category}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">{t.description || '-'}</td>
+                  <td className={'px-4 py-3 text-sm font-bold text-right ' + (t.type === 'entrada' ? 'text-emerald-600' : 'text-rose-600')}>{fmtMoney(t.amount)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// DADOS / BACKUP
+// ============================================================
+function DataScreen({ data, setData, toast }) {
+  const fileInputRef = useRef(null);
+
+  function exportJSON() {
+    const json = JSON.stringify(data, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'fluxopro-backup-' + today() + '.json'; a.click();
+    URL.revokeObjectURL(url);
+    toast('Backup JSON exportado', 'success');
+  }
+
+  function importJSON(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const imported = JSON.parse(ev.target.result);
+        if (!imported.transactions || !imported.categories) { toast('Arquivo inválido', 'error'); return; }
+        if (confirm('Isso substituirá todos os dados. Continuar?')) {
+          setData(imported);
+          toast('Dados importados', 'success');
+        }
+      } catch(err) { toast('Erro: ' + err.message, 'error'); }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  }
+
+  function exportCSVFull() {
+    const headers = ['Data', 'Transação', 'Vencimento', 'Tipo', 'Categoria', 'Descrição', 'Valor', 'Status', 'Pagamento'];
+    const rows = (data.transactions || []).map(t => [t.date, t.transactionDate, t.dueDate, t.type, t.category, t.description || '', String(t.amount), t.status, t.paymentMethod || '']);
+    const csv = [headers].concat(rows).map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(';')).join('\n');
+    const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = 'todos-lancamentos-' + today() + '.csv'; a.click();
+    URL.revokeObjectURL(url);
+    toast('CSV exportado', 'success');
+  }
+
+  function clearAll() {
+    if (!confirm('ATENÇÃO: Isso apagará TODOS os dados. Continuar?')) return;
+    if (!confirm('Tem certeza? Esta ação é irreversível.')) return;
+    setData({
+      accounts: [{ id: uid(), name: 'Conta Principal', bank: '', agency: '', account: '', balance: 0, color: '#6366f1' }],
+      categories: DEFAULT_CATS, transactions: [], recurring: [], creditCards: [], piggyBanks: [], loans: [], investments: [], billsPay: [], billsRecv: [], transfers: [], settings: { currency: 'BRL' },
+    });
+    toast('Dados limpos', 'success');
+  }
+
+  return (
+    <div className="fade-in">
+      <div className="mb-6"><h1 className="text-3xl font-bold text-gray-800">Dados e Backup</h1><p className="text-gray-500 mt-1">Exporte, importe e gerencie</p></div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <div className="flex items-center gap-3 mb-4"><div className="w-12 h-12 bg-indigo-100 rounded-xl flex items-center justify-center text-2xl">💾</div><div><h3 className="font-bold">Exportar JSON</h3><p className="text-sm text-gray-500">Backup completo</p></div></div>
+          <p className="text-sm text-gray-600 mb-4">Exporta todos os dados em formato JSON.</p>
+          <button onClick={exportJSON} className="btn-primary w-full">Exportar JSON</button>
+        </div>
+
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <div className="flex items-center gap-3 mb-4"><div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center text-2xl"></div><div><h3 className="font-bold">Importar JSON</h3><p className="text-sm text-gray-500">Restaurar backup</p></div></div>
+          <p className="text-sm text-gray-600 mb-4">Importe um arquivo JSON. Substituirá os dados atuais.</p>
+          <input ref={fileInputRef} type="file" accept=".json" onChange={importJSON} className="hidden" />
+          <button onClick={() => fileInputRef.current.click()} className="btn-success w-full">Selecionar Arquivo</button>
+        </div>
+
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <div className="flex items-center gap-3 mb-4"><div className="w-12 h-12 bg-amber-100 rounded-xl flex items-center justify-center text-2xl">📊</div><div><h3 className="font-bold">Exportar CSV</h3><p className="text-sm text-gray-500">Planilha completa</p></div></div>
+          <p className="text-sm text-gray-600 mb-4">Exporta todos os lançamentos em CSV (Excel).</p>
+          <button onClick={exportCSVFull} className="btn-primary w-full" style={{background: 'linear-gradient(135deg, #f59e0b, #d97706)'}}>Exportar CSV</button>
+        </div>
+
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <div className="flex items-center gap-3 mb-4"><div className="w-12 h-12 bg-rose-100 rounded-xl flex items-center justify-center text-2xl">🗑️</div><div><h3 className="font-bold">Limpar Tudo</h3><p className="text-sm text-gray-500">Resetar sistema</p></div></div>
+          <p className="text-sm text-gray-600 mb-4">Remove todos os dados. Ação irreversível!</p>
+          <button onClick={clearAll} className="btn-danger w-full">Limpar Tudo</button>
+        </div>
+      </div>
+
+      <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-6 text-white">
+        <h3 className="text-xl font-bold mb-3">💾 Sobre o armazenamento</h3>
+        <p className="text-indigo-100 leading-relaxed">
+          Seus dados são armazenados localmente no navegador usando <strong>localStorage</strong> (banco de dados JSON). 
+          Cada usuário possui dados totalmente separados. Faça backups regulares exportando o JSON.
+          Os dados permanecem no seu dispositivo e nunca são enviados para servidores externos.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// SOBRE / AJUDA
+// ============================================================
+function AboutScreen() {
+  return (
+    <div className="fade-in max-w-4xl">
+      <div className="mb-6"><h1 className="text-3xl font-bold text-gray-800">Sobre o FluxoPro</h1><p className="text-gray-500 mt-1">MVP v0.1.0 - Projeto de Estudo</p></div>
+
+      <div className="space-y-5">
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <h2 className="text-xl font-bold text-gray-800 mb-3">💰 O que é Fluxo de Caixa?</h2>
+          <p className="text-gray-600 leading-relaxed">
+            O <strong>Fluxo de Caixa</strong> registra todas as entradas e saídas de dinheiro em um período. 
+            Permite visualizar para onde o dinheiro está indo, identificar padrões e tomar decisões financeiras inteligentes.
+          </p>
+        </div>
+
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <h2 className="text-xl font-bold text-gray-800 mb-3">🧮 Fórmulas e Cálculos</h2>
+          <div className="space-y-3 text-gray-600">
+            <div className="bg-emerald-50 border-l-4 border-emerald-500 p-4 rounded">
+              <p className="font-semibold text-emerald-800">Saldo Total</p>
+              <code className="block mt-1 text-sm bg-white p-2 rounded font-mono">Saldo = Σ(Contas) + Σ(Caixinhas) + Σ(Investimentos) - Σ(Empréstimos)</code>
+              <p className="text-sm mt-2">Soma de todos os ativos menos passivos = Patrimônio Líquido</p>
+            </div>
+            <div className="bg-blue-50 border-l-4 border-blue-500 p-4 rounded">
+              <p className="font-semibold text-blue-800">Taxa de Poupança</p>
+              <code className="block mt-1 text-sm bg-white p-2 rounded font-mono">Taxa = ((Entradas - Saídas) / Entradas) × 100</code>
+              <p className="text-sm mt-2">Indica quanto % da renda está sendo poupado. Meta saudável: acima de 20%</p>
+            </div>
+            <div className="bg-purple-50 border-l-4 border-purple-500 p-4 rounded">
+              <p className="font-semibold text-purple-800">Reserva de Emergência (meses)</p>
+              <code className="block mt-1 text-sm bg-white p-2 rounded font-mono">Reserva = (Contas + Caixinhas) / Despesas Mensais Médias</code>
+              <p className="text-sm mt-2">Quantos meses você sobrevive sem renda. Meta: 6 meses</p>
+            </div>
+            <div className="bg-amber-50 border-l-4 border-amber-500 p-4 rounded">
+              <p className="font-semibold text-amber-800">Liquidez Imediata</p>
+              <code className="block mt-1 text-sm bg-white p-2 rounded font-mono">Liquidez = (Contas + Caixinhas) / Despesas Mensais</code>
+              <p className="text-sm mt-2">Capacidade de pagar contas no curto prazo</p>
+            </div>
+            <div className="bg-rose-50 border-l-4 border-rose-500 p-4 rounded">
+              <p className="font-semibold text-rose-800">Endividamento</p>
+              <code className="block mt-1 text-sm bg-white p-2 rounded font-mono">Endividamento = (Empréstimos / Patrimônio Líquido) × 100</code>
+              <p className="text-sm mt-2">Quanto do seu patrimônio está comprometido com dívidas</p>
+            </div>
+            <div className="bg-indigo-50 border-l-4 border-indigo-500 p-4 rounded">
+              <p className="font-semibold text-indigo-800">Cartão de Crédito - Disponível</p>
+              <code className="block mt-1 text-sm bg-white p-2 rounded font-mono">Disponível = Limite Total - Gastos no Mês Atual</code>
+            </div>
+            <div className="bg-teal-50 border-l-4 border-teal-500 p-4 rounded">
+              <p className="font-semibold text-teal-800">Empréstimo - Parcela</p>
+              <code className="block mt-1 text-sm bg-white p-2 rounded font-mono">Parcela = Valor Total / Número de Parcelas</code>
+              <p className="text-sm mt-2">Sistema de amortização simples (valor fixo)</p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-gradient-to-br from-indigo-500 to-purple-600 rounded-2xl p-6 text-white">
+          <h2 className="text-xl font-bold mb-3">💡 Dicas de Uso</h2>
+          <ul className="space-y-2 text-indigo-100">
+            <li>✓ Configure suas contas bancárias com saldos iniciais</li>
+            <li>✓ Cadastre recorrências para contas fixas (luz, água, aluguel)</li>
+            <li>✓ Use "Gerar Mensal" para criar lançamentos automáticos</li>
+            <li>✓ Use caixinhas para guardar dinheiro para objetivos</li>
+            <li>✓ Registre empréstimos e acompanhe a quitação</li>
+            <li>✓ Monitore investimentos e diversifique</li>
+            <li>✓ Use contas a pagar/receber para não esquecer vencimentos</li>
+            <li>✓ Exporte backups JSON regularmente</li>
+            <li>✓ Revise o dashboard semanalmente</li>
+          </ul>
+        </div>
+
+        <div className="bg-white rounded-2xl p-6 shadow-sm border border-gray-100">
+          <h2 className="text-xl font-bold text-gray-800 mb-3">Funcionalidades</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {[
+              'Dashboard com KPIs financeiros avançados',
+              'Lançamentos com 3 datas (cadastro, transação, vencimento)',
+              'Contas bancárias múltiplas (individual/consolidado)',
+              'Transferências entre contas e cartões',
+              'Cartões de crédito com limite e controle',
+              'Caixinhas de economia (tipo Nubank)',
+              'Contas a pagar e a receber',
+              'Empréstimos com parcelamento',
+              'Investimentos por tipo',
+              'Lançamentos recorrentes automáticos',
+              'Categorias personalizáveis',
+              'Filtros avançados multi-critério',
+              'Relatórios em PDF e CSV',
+              'Backup e restore em JSON',
+              'Sistema multi-usuário',
+              'Interface responsiva e moderna',
+            ].map((f, i) => (
+              <div key={i} className="flex items-center gap-2 text-gray-700">
+                <span className="text-emerald-500">✓</span><span className="text-sm">{f}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="bg-slate-800 rounded-2xl p-6 text-white text-center">
+          <p className="text-sm text-slate-300">FluxoPro MVP v0.1.0</p>
+          <p className="font-bold text-lg mt-1">Walney Moreira Klein</p>
+          <p className="text-slate-300 text-sm mt-1">walneyk@hotmail.com</p>
+          <p className="text-slate-400 text-xs mt-3">© 2026 - Projeto de Estudo - Todos os direitos reservados</p>
+          <p className="text-slate-500 text-xs mt-2">Desenvolvido com React + Tailwind CSS</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// APP PRINCIPAL
+// ============================================================
+function App() {
+  const [user, setUser] = useState(DB.get('currentUser'));
+  const [data, setData] = useState(null);
+  const [currentView, setCurrentView] = useState('dashboard');
+  const [toast, setToast] = useState(null);
+
+  useEffect(() => {
+    if (user) {
+      let userData = DB.get('data_' + user.id);
+      if (!userData) {
+        userData = {
+          accounts: [{ id: uid(), name: 'Conta Principal', bank: '', agency: '', account: '', balance: 0, color: '#6366f1' }],
+          categories: DEFAULT_CATS,
+          transactions: [],
+          recurring: [],
+          creditCards: [],
+          piggyBanks: [],
+          loans: [],
+          investments: [],
+          billsPay: [],
+          billsRecv: [],
+          transfers: [],
+          settings: { currency: 'BRL' },
+        };
+        DB.set('data_' + user.id, userData);
+      }
+      // Migração: adiciona campos novos se não existirem
+      if (!userData.piggyBanks) userData.piggyBanks = [];
+      if (!userData.loans) userData.loans = [];
+      if (!userData.investments) userData.investments = [];
+      if (!userData.billsPay) userData.billsPay = [];
+      if (!userData.billsRecv) userData.billsRecv = [];
+      if (!userData.transfers) userData.transfers = [];
+      setData(userData);
+    }
+  }, [user]);
+
+  useEffect(() => {
+    if (user && data) {
+      DB.set('data_' + user.id, data);
+    }
+  }, [data, user]);
+
+  function handleLogin(u) { setUser(u); }
+  function handleLogout() { DB.del('currentUser'); setUser(null); }
+  function showToast(msg, type) { setToast({ message: msg, type: type || 'info', key: Date.now() }); }
+
+  if (!user) return <LoginScreen onLogin={handleLogin} />;
+  if (!data) return <div className="min-h-screen flex items-center justify-center">Carregando...</div>;
+
+  return (
+    <div className="flex min-h-screen bg-gray-50">
+      <Sidebar currentView={currentView} setCurrentView={setCurrentView} user={user} onLogout={handleLogout} />
+      <main className="flex-1 overflow-y-auto">
+        <div className="p-8">
+          <div className="mb-6 flex items-center justify-between bg-white rounded-xl p-4 shadow-sm border border-gray-100">
+            <div>
+              <p className="text-sm text-gray-500">Bem-vindo(a),</p>
+              <p className="text-lg font-bold text-gray-800">{user.name}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-gray-500">FluxoPro MVP</p>
+              <p className="text-sm font-bold text-indigo-600">v0.1.0</p>
+            </div>
+          </div>
+
+          {currentView === 'dashboard' && <Dashboard data={data} />}
+          {currentView === 'transactions' && <TransactionsScreen data={data} setData={setData} toast={showToast} />}
+          {currentView === 'recurring' && <RecurringScreen data={data} setData={setData} toast={showToast} />}
+          {currentView === 'accounts' && <AccountsScreen data={data} setData={setData} toast={showToast} />}
+          {currentView === 'transfers' && <TransfersScreen data={data} setData={setData} toast={showToast} />}
+          {currentView === 'creditcards' && <CreditCardsScreen data={data} setData={setData} toast={showToast} />}
+          {currentView === 'piggybanks' && <PiggyBanksScreen data={data} setData={setData} toast={showToast} />}
+          {currentView === 'bills' && <BillsScreen data={data} setData={setData} toast={showToast} />}
+          {currentView === 'loans' && <LoansScreen data={data} setData={setData} toast={showToast} />}
+          {currentView === 'investments' && <InvestmentsScreen data={data} setData={setData} toast={showToast} />}
+          {currentView === 'categories' && <CategoriesScreen data={data} setData={setData} toast={showToast} />}
+          {currentView === 'reports' && <ReportsScreen data={data} toast={showToast} />}
+          {currentView === 'data' && <DataScreen data={data} setData={setData} toast={showToast} />}
+          {currentView === 'about' && <AboutScreen />}
+        </div>
+      </main>
+      {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} key={toast.key} />}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
